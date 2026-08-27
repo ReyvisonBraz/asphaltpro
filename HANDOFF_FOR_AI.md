@@ -54,12 +54,14 @@ Este documento foi elaborado para fornecer **contexto técnico completo, padrõe
 ## ✅ 3. O que JÁ FOI FEITO e COMO FOI FEITO
 
 ### A. Core Financeiro e Módulos Operacionais
-1. **Painel Dashboard**: KPIs de saldo consolidado, entradas, saídas, previsão de fluxo de caixa e alertas de contas a vencer.
+1. **Painel Dashboard**: KPIs de saldo consolidado, entradas, saídas, previsão de fluxo de caixa, gráfico dinâmico (7/15/30 dias) e **Banner Inteligente de Contas Vencidas** com ação imediata de resolução.
 2. **Lançamentos (Entradas & Saídas)**: Cadastro rápido com categorização (CBUQ, Capa Asfáltica, Diesel, Brita, Folha), filtros avançados e exportação de relatórios.
 3. **Contas a Pagar & Receber**: Controle de status (Pendente/Pago), cálculo automático de vencimentos e integração direta com o fluxo de caixa ao baixar títulos.
-4. **Calculadora e Gerador de Orçamentos**: Cálculo automatizado de toneladas de asfalto (CBUQ) com base em área ($m^2$), espessura e densidade, cálculo de frete por km e geração de propostas prontas para impressão.
+4. **Calculadora e Gerador de Orçamentos**: Cálculo automatizado de toneladas de asfalto (CBUQ) com base em área ($m^2$), espessura e densidade, cálculo de frete por km e geração de propostas prontas para impressão em folha A4.
 5. **Gestão de Equipe / Colaboradores**: Controle de quadro de funcionários da usina e motoristas.
 6. **Relatórios Gerenciais**: Gráficos analíticos de despesas por centro de custo e faturamento mensal.
+7. **Backup Completo & Migração JSON**: Exportação e importação de todo o banco de dados local com 1 clique na aba Configurações > Sistema.
+8. **Atalhos de Teclado Globais (`useKeyboardShortcuts`)**: Agilidade para operadores com `N` (Nova Saída), `E` (Nova Entrada), `O` (Novo Orçamento), `ESC` (Fechar modais) e `?` (Ajuda).
 
 ### B. Arquitetura de Sincronização e Resiliência Offline
 1. **`src/services/syncManager.ts`**:

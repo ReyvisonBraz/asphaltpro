@@ -125,6 +125,35 @@ export const DashboardView: React.FC = () => {
         </div>
       </div>
 
+      {/* Smart Overdue / Due Notice Banner */}
+      {contasEmAtraso > 0 && (
+        <div className="bg-gradient-to-r from-red-50 to-orange-50 border border-red-200/90 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xs">
+          <div className="flex items-start sm:items-center gap-3.5">
+            <div className="w-10 h-10 rounded-xl bg-red-600 text-white flex items-center justify-center shrink-0 shadow-sm">
+              <span className="material-symbols-outlined text-[22px]">warning</span>
+            </div>
+            <div>
+              <h4 className="text-sm font-bold text-red-950">
+                Atenção: {contasEmAtraso} {contasEmAtraso === 1 ? 'título a pagar vencido' : 'títulos a pagar vencidos'}
+              </h4>
+              <p className="text-xs text-red-800/90 mt-0.5">
+                Existem contas que necessitam de quitação imediata para evitar juros e bloqueio de fornecimento de CAP/Insumos.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <Button
+              variant="danger"
+              size="sm"
+              icon="payments"
+              onClick={() => setCurrentView('contas')}
+            >
+              Resolver Contas Agora
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Bento Grid: 4 Metric Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard

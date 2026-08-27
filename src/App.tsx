@@ -20,9 +20,11 @@ import { NovaContaModal } from './components/contas/NovaContaModal';
 import { HelpModal } from './components/common/HelpModal';
 import { Toast } from './components/common/Toast';
 import { LoginView } from './components/auth/LoginView';
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 
 const MainLayout: React.FC = () => {
   const { isAuthenticated, currentView } = useApp();
+  useKeyboardShortcuts();
 
   if (!isAuthenticated) {
     return <LoginView />;

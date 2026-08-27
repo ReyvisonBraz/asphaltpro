@@ -123,6 +123,10 @@ interface AppContextType {
   totalPendentePagar: number;
   totalPendenteReceber: number;
 
+  // Backup & Restore
+  exportFullBackup: () => void;
+  importFullBackup: (jsonContent: string) => boolean;
+
   // Reset to default data
   resetAllData: () => void;
 }
@@ -610,6 +614,78 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     showToast('Todas as notificações marcadas como lidas.', 'info');
   };
 
+  const exportFullBackup = () => {
+    try {
+      const backupData = {
+        version: '1.0.0',
+        exportedAt: new Date().toISOString(),
+        transactions,
+        accounts,
+        employees,
+        quotes,
+        quoteCatalog,
+        letterheadSettings,
+      };
+
+      const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(backupData, null, 2));
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.setAttribute('href', dataStr);
+      downloadAnchor.setAttribute('download', `asphalt_pro_backup_${new Date().toISOString().slice(0, 10)}.json`);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+
+      syncManager.addLog('Backup completo exportado em arquivo JSON', 'info');
+      showToast('Backup exportado com sucesso!', 'success');
+    } catch (e) {
+      console.error(e);
+      showToast('Erro ao exportar backup.', 'error');
+    }
+  };
+
+  const importFullBackup = (jsonContent: string): boolean => {
+    try {
+      const data = JSON.parse(jsonContent);
+      if (!data || (!data.transactions && !data.accounts)) {
+        showToast('Arquivo de backup inválido ou incompatível.', 'error');
+        return false;
+      }
+
+      if (Array.isArray(data.transactions)) {
+        setTransactions(data.transactions);
+        localStorage.setItem('asphalt_transactions', JSON.stringify(data.transactions));
+      }
+      if (Array.isArray(data.accounts)) {
+        setAccounts(data.accounts);
+        localStorage.setItem('asphalt_accounts', JSON.stringify(data.accounts));
+      }
+      if (Array.isArray(data.employees)) {
+        setEmployees(data.employees);
+        localStorage.setItem('asphalt_employees', JSON.stringify(data.employees));
+      }
+      if (Array.isArray(data.quotes)) {
+        setQuotes(data.quotes);
+        localStorage.setItem('asphalt_quotes', JSON.stringify(data.quotes));
+      }
+      if (Array.isArray(data.quoteCatalog)) {
+        setQuoteCatalog(data.quoteCatalog);
+        localStorage.setItem('asphalt_quote_catalog', JSON.stringify(data.quoteCatalog));
+      }
+      if (data.letterheadSettings) {
+        setLetterheadSettings(data.letterheadSettings);
+        localStorage.setItem('asphalt_letterhead', JSON.stringify(data.letterheadSettings));
+      }
+
+      syncManager.addLog('Backup completo restaurado a partir de arquivo JSON', 'success');
+      showToast('Dados restaurados com sucesso do backup!', 'success');
+      return true;
+    } catch (e) {
+      console.error(e);
+      showToast('Falha ao processar arquivo de backup.', 'error');
+      return false;
+    }
+  };
+
   const resetAllData = () => {
     setTransactions(INITIAL_TRANSACTIONS);
     setAccounts(INITIAL_ACCOUNTS);
@@ -712,6 +788,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         contasEmAtraso,
         totalPendentePagar,
         totalPendenteReceber,
+        exportFullBackup,
+        importFullBackup,
         resetAllData
       }}
     >

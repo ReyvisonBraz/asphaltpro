@@ -44,6 +44,28 @@ export const HelpModal: React.FC = () => {
           </div>
 
           <div>
+            <h4 className="font-bold text-[#010102] mb-1">Atalhos de Teclado Rápidos</h4>
+            <div className="grid grid-cols-2 gap-1.5 pt-1">
+              <div className="flex items-center gap-2">
+                <kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-[10px] font-mono font-bold">N</kbd>
+                <span className="text-[11px] text-gray-600">Nova Saída</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-[10px] font-mono font-bold">E</kbd>
+                <span className="text-[11px] text-gray-600">Nova Entrada</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-[10px] font-mono font-bold">O</kbd>
+                <span className="text-[11px] text-gray-600">Novo Orçamento</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <kbd className="px-1.5 py-0.5 bg-gray-100 border border-gray-300 rounded text-[10px] font-mono font-bold">ESC</kbd>
+                <span className="text-[11px] text-gray-600">Fechar Janela</span>
+              </div>
+            </div>
+          </div>
+
+          <div>
             <h4 className="font-bold text-[#010102] mb-1">Atribuição de Motoristas</h4>
             <p>
               Na tela de <strong>Cadastros &gt; Funcionários</strong>, marque a opção &quot;Motorista&quot; para vincular caminhoneiros aos romaneios e ordens de entrega de massa asfáltica.

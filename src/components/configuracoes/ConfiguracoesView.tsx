@@ -11,10 +11,13 @@ export const ConfiguracoesView: React.FC = () => {
     resetAllData,
     letterheadSettings,
     updateLetterheadSettings,
-    quotes
+    quotes,
+    exportFullBackup,
+    importFullBackup,
   } = useApp();
 
   const [activeTab, setActiveTab] = useState<'timbrado' | 'empresa' | 'sistema'>('timbrado');
+  const backupInputRef = useRef<HTMLInputElement>(null);
 
   // Letterhead State
   const [nomeEmpresa, setNomeEmpresa] = useState(letterheadSettings.nomeEmpresa);
@@ -567,6 +570,7 @@ export const ConfiguracoesView: React.FC = () => {
       {/* Tab: Sistema & Reset */}
       {activeTab === 'sistema' && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* User Profile */}
           <div className="bg-white p-6 rounded-2xl border border-[#DEE2E6] shadow-xs text-xs space-y-4">
             <h3 className="text-base font-bold text-[#010102] pb-3 border-b border-[#E5E2E1] flex items-center gap-2">
               <span className="material-symbols-outlined text-[#010102]">account_circle</span>
@@ -589,7 +593,58 @@ export const ConfiguracoesView: React.FC = () => {
             </div>
           </div>
 
-          <div className="bg-white p-6 rounded-2xl border border-[#DEE2E6] shadow-xs text-xs space-y-3">
+          {/* Backup & Data Export / Import */}
+          <div className="bg-white p-6 rounded-2xl border border-[#DEE2E6] shadow-xs text-xs space-y-4">
+            <h3 className="text-base font-bold text-[#010102] pb-3 border-b border-[#E5E2E1] flex items-center gap-2">
+              <span className="material-symbols-outlined text-[#835400]">cloud_download</span>
+              Backup Completo & Migração
+            </h3>
+            <p className="text-gray-600 leading-relaxed">
+              Exporte todos os orçamentos, lançamentos, colaboradores e contas em um arquivo único JSON para guardar em segurança ou transferir para outro computador.
+            </p>
+
+            <div className="flex flex-col sm:flex-row gap-2 pt-2">
+              <Button
+                variant="primary"
+                icon="download"
+                onClick={exportFullBackup}
+              >
+                Exportar Backup (.JSON)
+              </Button>
+
+              <input
+                type="file"
+                ref={backupInputRef}
+                accept=".json"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) {
+                    const reader = new FileReader();
+                    reader.onload = (ev) => {
+                      const content = ev.target?.result as string;
+                      if (content) {
+                        importFullBackup(content);
+                      }
+                    };
+                    reader.readAsText(file);
+                  }
+                  if (e.target) e.target.value = '';
+                }}
+              />
+
+              <Button
+                variant="secondary"
+                icon="upload_file"
+                onClick={() => backupInputRef.current?.click()}
+              >
+                Importar / Restaurar Backup
+              </Button>
+            </div>
+          </div>
+
+          {/* Reset Factory Settings */}
+          <div className="bg-white p-6 rounded-2xl border border-[#DEE2E6] shadow-xs text-xs space-y-3 lg:col-span-2">
             <h3 className="text-base font-bold text-[#E03131] pb-3 border-b border-[#E5E2E1] flex items-center gap-2">
               <span className="material-symbols-outlined text-[#E03131]">restart_alt</span>
               Restauração de Dados & Fábrica
@@ -597,18 +652,20 @@ export const ConfiguracoesView: React.FC = () => {
             <p className="text-gray-600 leading-relaxed">
               Restaura todos os orçamentos, lançamentos, funcionários, contas e catálogo de preços para o padrão inicial de fábrica do Asphalt Pro.
             </p>
-            <Button
-              variant="danger"
-              fullWidth
-              icon="restart_alt"
-              onClick={() => {
-                if (confirm('Tem certeza de que deseja restaurar todos os dados para o padrão de demonstração?')) {
-                  resetAllData();
-                }
-              }}
-            >
-              Restaurar Dados de Fábrica
-            </Button>
+            <div className="max-w-xs">
+              <Button
+                variant="danger"
+                fullWidth
+                icon="restart_alt"
+                onClick={() => {
+                  if (confirm('Tem certeza de que deseja restaurar todos os dados para o padrão de demonstração?')) {
+                    resetAllData();
+                  }
+                }}
+              >
+                Restaurar Dados de Fábrica
+              </Button>
+            </div>
           </div>
         </div>
       )}
