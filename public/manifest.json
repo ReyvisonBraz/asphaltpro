@@ -1,0 +1,37 @@
+{
+  "name": "Asphalt Pro - Gestão & Fluxo de Caixa",
+  "short_name": "AsphaltPro",
+  "description": "Sistema de Gestão Financeira, Orçamentos e Fluxo de Caixa para Usina de Asfalto.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F8F9FA",
+  "theme_color": "#010102",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["business", "finance", "productivity"],
+  "shortcuts": [
+    {
+      "name": "Novo Lançamento",
+      "url": "/?action=novo-lancamento",
+      "description": "Registrar entrada ou saída de caixa"
+    },
+    {
+      "name": "Novo Orçamento",
+      "url": "/?action=novo-orcamento",
+      "description": "Criar proposta de fornecimento de asfalto"
+    }
+  ]
+}

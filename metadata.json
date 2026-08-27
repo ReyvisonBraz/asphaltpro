@@ -1,0 +1,6 @@
+{
+  "name": "Asphalt Pro - Controle de Fluxo de Caixa",
+  "description": "Sistema de gestão financeira e controle de fluxo de caixa para Usina de Asfalto com Orçamentos em Folha Timbrada A4, Catálogo de Preços, Lançamentos, Contas a Pagar e Receber, Cadastros e Relatórios.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
