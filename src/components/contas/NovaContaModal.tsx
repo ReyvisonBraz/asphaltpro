@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { AccountType, AccountStatus } from '../../types';
 import { formatDateToBR, getTodayDateInputValue } from '../../utils/formatters';
-import { Modal, Button, Input, Select } from '../common';
+import { Modal, Button, Input, Select, PartnerAutocomplete } from '../common';
 
 export const NovaContaModal: React.FC = () => {
   const { isNovaContaOpen, setIsNovaContaOpen, addAccount, categories } = useApp();
@@ -161,12 +161,24 @@ export const NovaContaModal: React.FC = () => {
         />
 
         {/* Fornecedor / Cliente */}
-        <Input
+        <PartnerAutocomplete
           label={tipo === 'pagar' ? 'Fornecedor / Favorecido' : 'Cliente / Tomador'}
-          placeholder="Ex: Petrobras Distribuidora S.A."
+          placeholder={
+            tipo === 'pagar'
+              ? 'Pesquise fornecedor por nome, CNPJ, insumo...'
+              : 'Pesquise cliente por nome, CNPJ, obra...'
+          }
           value={fornecedorCliente}
-          onChange={(e) => setFornecedorCliente(e.target.value)}
+          onChange={setFornecedorCliente}
+          onSelectPartner={(partner) => {
+            setFornecedorCliente(partner.nome);
+            if (partner.categoriaPadrao) {
+              setCategoria(partner.categoriaPadrao);
+            }
+          }}
+          partnerType={tipo === 'pagar' ? 'fornecedor' : 'cliente'}
           leftIcon="business"
+          helperText="Pesquise no cadastro da usina ou digite um novo nome"
         />
 
         {/* Valor e Parcelas */}

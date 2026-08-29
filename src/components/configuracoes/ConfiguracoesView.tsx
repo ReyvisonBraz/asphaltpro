@@ -3,10 +3,12 @@ import { useApp } from '../../context/AppContext';
 import { LetterheadSettings, Quote } from '../../types';
 import { Button } from '../common/Button';
 import { OrcamentoA4VisualizerModal } from '../orcamentos/OrcamentoA4VisualizerModal';
+import { UsuariosViewTab } from './UsuariosViewTab';
 
 export const ConfiguracoesView: React.FC = () => {
   const {
     user,
+    permissions,
     showToast,
     resetAllData,
     letterheadSettings,
@@ -16,7 +18,7 @@ export const ConfiguracoesView: React.FC = () => {
     importFullBackup,
   } = useApp();
 
-  const [activeTab, setActiveTab] = useState<'timbrado' | 'empresa' | 'sistema'>('timbrado');
+  const [activeTab, setActiveTab] = useState<'usuarios' | 'timbrado' | 'empresa' | 'sistema'>('usuarios');
   const backupInputRef = useRef<HTMLInputElement>(null);
 
   // Letterhead State
@@ -168,7 +170,19 @@ export const ConfiguracoesView: React.FC = () => {
         </div>
 
         {/* Quick Tabs */}
-        <div className="flex items-center gap-1.5 bg-gray-100 p-1 rounded-xl">
+        <div className="flex items-center gap-1.5 bg-gray-100 p-1 rounded-xl flex-wrap">
+          <button
+            onClick={() => setActiveTab('usuarios')}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+              activeTab === 'usuarios'
+                ? 'bg-white text-[#835400] shadow-xs'
+                : 'text-gray-600 hover:text-black'
+            }`}
+          >
+            <span className="material-symbols-outlined text-[16px]">manage_accounts</span>
+            Usuários & Regras (RBAC)
+          </button>
+
           <button
             onClick={() => setActiveTab('timbrado')}
             className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
@@ -206,6 +220,9 @@ export const ConfiguracoesView: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Tab: Usuários & Regras de Acesso (RBAC) */}
+      {activeTab === 'usuarios' && <UsuariosViewTab />}
 
       {/* Tab: Papel Timbrado A4 */}
       {activeTab === 'timbrado' && (

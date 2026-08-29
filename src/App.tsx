@@ -18,12 +18,14 @@ import { NovoLancamentoModal } from './components/lancamentos/NovoLancamentoModa
 import { NovoFuncionarioDrawer } from './components/cadastros/NovoFuncionarioDrawer';
 import { NovaContaModal } from './components/contas/NovaContaModal';
 import { HelpModal } from './components/common/HelpModal';
+import { ErrorBoundary } from './components/common/ErrorBoundary';
+import { ErrorDiagnosticsModal } from './components/common/ErrorDiagnosticsModal';
 import { Toast } from './components/common/Toast';
 import { LoginView } from './components/auth/LoginView';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 
 const MainLayout: React.FC = () => {
-  const { isAuthenticated, currentView } = useApp();
+  const { isAuthenticated, currentView, isDiagnosticsOpen, setIsDiagnosticsOpen } = useApp();
   useKeyboardShortcuts();
 
   if (!isAuthenticated) {
@@ -69,6 +71,10 @@ const MainLayout: React.FC = () => {
       <NovoFuncionarioDrawer />
       <NovaContaModal />
       <HelpModal />
+      <ErrorDiagnosticsModal
+        isOpen={isDiagnosticsOpen}
+        onClose={() => setIsDiagnosticsOpen(false)}
+      />
       <Toast />
     </div>
   );
@@ -76,8 +82,10 @@ const MainLayout: React.FC = () => {
 
 export default function App() {
   return (
-    <AppProvider>
-      <MainLayout />
-    </AppProvider>
+    <ErrorBoundary>
+      <AppProvider>
+        <MainLayout />
+      </AppProvider>
+    </ErrorBoundary>
   );
 }

@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useApp } from '../../context/AppContext';
-import { Employee } from '../../types';
+import { Employee, BusinessPartner, PartnerType } from '../../types';
 import {
   Button,
   StatusBadge,
@@ -20,6 +20,9 @@ export const CadastrosView: React.FC = () => {
     setIsNovoFuncionarioOpen,
     categories,
     bankAccounts,
+    partners,
+    addPartner,
+    deletePartner,
     globalSearch,
     showToast,
   } = useApp();
@@ -37,6 +40,19 @@ export const CadastrosView: React.FC = () => {
   const [newCatNome, setNewCatNome] = useState('');
   const [newCatTipo, setNewCatTipo] = useState<'receita' | 'despesa'>('despesa');
   const [newCatIcone, setNewCatIcone] = useState('category');
+
+  // Modal for new Business Partner
+  const [isPartnerModalOpen, setIsPartnerModalOpen] = useState(false);
+  const [newPartnerNome, setNewPartnerNome] = useState('');
+  const [newPartnerFantasia, setNewPartnerFantasia] = useState('');
+  const [newPartnerTipo, setNewPartnerTipo] = useState<PartnerType>('fornecedor');
+  const [newPartnerDoc, setNewPartnerDoc] = useState('');
+  const [newPartnerContato, setNewPartnerContato] = useState('');
+  const [newPartnerTelefone, setNewPartnerTelefone] = useState('');
+  const [newPartnerEmail, setNewPartnerEmail] = useState('');
+  const [newPartnerCidadeUf, setNewPartnerCidadeUf] = useState('');
+  const [newPartnerEndereco, setNewPartnerEndereco] = useState('');
+  const [newPartnerRamo, setNewPartnerRamo] = useState('');
 
   // Filtered employees
   const filteredEmployees = useMemo(() => {
@@ -75,6 +91,55 @@ export const CadastrosView: React.FC = () => {
     setIsCategoryModalOpen(false);
   };
 
+  const handleAddPartner = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPartnerNome.trim()) {
+      showToast('Informe o nome ou razão social do parceiro.', 'error');
+      return;
+    }
+
+    addPartner({
+      nome: newPartnerNome.trim(),
+      nomeFantasia: newPartnerFantasia.trim() || undefined,
+      tipo: newPartnerTipo,
+      documento: newPartnerDoc.trim() || undefined,
+      contato: newPartnerContato.trim() || undefined,
+      telefone: newPartnerTelefone.trim() || undefined,
+      email: newPartnerEmail.trim() || undefined,
+      cidadeUf: newPartnerCidadeUf.trim() || undefined,
+      endereco: newPartnerEndereco.trim() || undefined,
+      ramoAtividade: newPartnerRamo.trim() || undefined,
+      status: 'ativo',
+    });
+
+    setNewPartnerNome('');
+    setNewPartnerFantasia('');
+    setNewPartnerDoc('');
+    setNewPartnerContato('');
+    setNewPartnerTelefone('');
+    setNewPartnerEmail('');
+    setNewPartnerCidadeUf('');
+    setNewPartnerEndereco('');
+    setNewPartnerRamo('');
+    setIsPartnerModalOpen(false);
+  };
+
+  const filteredPartners = useMemo(() => {
+    const q = (globalSearch || searchTerm).toLowerCase();
+    return partners.filter(
+      (p) =>
+        p.nome.toLowerCase().includes(q) ||
+        (p.nomeFantasia && p.nomeFantasia.toLowerCase().includes(q)) ||
+        (p.documento && p.documento.toLowerCase().includes(q)) ||
+        (p.contato && p.contato.toLowerCase().includes(q)) ||
+        (p.cidadeUf && p.cidadeUf.toLowerCase().includes(q)) ||
+        (p.ramoAtividade && p.ramoAtividade.toLowerCase().includes(q))
+    );
+  }, [partners, globalSearch, searchTerm]);
+
+  const fornecedoresList = filteredPartners.filter((p) => p.tipo === 'fornecedor' || p.tipo === 'ambos');
+  const clientesList = filteredPartners.filter((p) => p.tipo === 'cliente' || p.tipo === 'ambos');
+
   return (
     <div className="flex-1 p-6 lg:p-10 max-w-[1440px] mx-auto w-full flex flex-col gap-6 animate-in fade-in duration-200">
       {/* Page Header */}
@@ -98,6 +163,16 @@ export const CadastrosView: React.FC = () => {
             }}
           >
             Novo Colaborador
+          </Button>
+        )}
+
+        {activeSubTab === 'fornecedores' && (
+          <Button
+            variant="primary"
+            icon="add_business"
+            onClick={() => setIsPartnerModalOpen(true)}
+          >
+            Novo Parceiro / Cliente
           </Button>
         )}
 
@@ -324,77 +399,145 @@ export const CadastrosView: React.FC = () => {
 
       {/* SubTab 2: Fornecedores & Clientes */}
       {activeSubTab === 'fornecedores' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="bg-white p-6 rounded-2xl border border-[#DEE2E6] shadow-xs">
-            <h3 className="font-bold text-[#010102] text-base mb-3 flex items-center gap-2">
-              <span className="material-symbols-outlined text-[#E03131]">store</span>
-              Principais Fornecedores de Insumos da Usina
-            </h3>
-            <ul className="divide-y divide-gray-100 text-xs">
-              <li className="py-3.5 flex justify-between items-center">
-                <div>
-                  <p className="font-bold text-gray-900">Petrobras Distribuidora S.A.</p>
-                  <p className="text-gray-500">Cimento Asfáltico de Petróleo (CAP 50/70)</p>
-                </div>
-                <span className="bg-gray-100 px-2 py-1 rounded text-gray-700 font-mono text-[11px]">
-                  CNPJ: 33.000.167/0001-01
-                </span>
-              </li>
-              <li className="py-3.5 flex justify-between items-center">
-                <div>
-                  <p className="font-bold text-gray-900">Pedreira São Jorge Ltda.</p>
-                  <p className="text-gray-500">Brita 0, Brita 1, Areia Industrial e Pó de Pedra</p>
-                </div>
-                <span className="bg-gray-100 px-2 py-1 rounded text-gray-700 font-mono text-[11px]">
-                  CNPJ: 45.123.789/0001-90
-                </span>
-              </li>
-              <li className="py-3.5 flex justify-between items-center">
-                <div>
-                  <p className="font-bold text-gray-900">Votorantim Cimentos S.A.</p>
-                  <p className="text-gray-500">Cimento Portland Especial e Fíler Calcário</p>
-                </div>
-                <span className="bg-gray-100 px-2 py-1 rounded text-gray-700 font-mono text-[11px]">
-                  CNPJ: 61.064.838/0001-44
-                </span>
-              </li>
-            </ul>
+        <div className="flex flex-col gap-6">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-white p-4 rounded-xl border border-[#DEE2E6]">
+            <div className="relative flex-1 w-full max-w-md">
+              <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-[18px]">
+                search
+              </span>
+              <input
+                type="text"
+                placeholder="Pesquisar por nome, CNPJ, contato ou cidade..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-9 pr-4 py-2 border border-[#DEE2E6] rounded-lg text-xs bg-gray-50 focus:bg-white focus:outline-none focus:border-[#835400]"
+              />
+            </div>
+            <div className="text-xs text-gray-500 font-medium flex items-center gap-3">
+              <span>{fornecedoresList.length} Fornecedores</span>
+              <span>•</span>
+              <span>{clientesList.length} Clientes</span>
+            </div>
           </div>
 
-          <div className="bg-white p-6 rounded-2xl border border-[#DEE2E6] shadow-xs">
-            <h3 className="font-bold text-[#010102] text-base mb-3 flex items-center gap-2">
-              <span className="material-symbols-outlined text-[#2F9E44]">business</span>
-              Principais Clientes & Contratantes de Asfalto
-            </h3>
-            <ul className="divide-y divide-gray-100 text-xs">
-              <li className="py-3.5 flex justify-between items-center">
-                <div>
-                  <p className="font-bold text-gray-900">Secretaria de Obras & Infraestrutura</p>
-                  <p className="text-gray-500">Contrato Contínuo de Recapeamento Asfáltico</p>
-                </div>
-                <span className="bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full font-bold text-[11px]">
-                  Contrato Vigente
-                </span>
-              </li>
-              <li className="py-3.5 flex justify-between items-center">
-                <div>
-                  <p className="font-bold text-gray-900">Construtora Alpha Engenharia Ltda.</p>
-                  <p className="text-gray-500">Infraestrutura Rodoviária e Loteamentos</p>
-                </div>
-                <span className="bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full font-bold text-[11px]">
-                  Cliente VIP
-                </span>
-              </li>
-              <li className="py-3.5 flex justify-between items-center">
-                <div>
-                  <p className="font-bold text-gray-900">Residencial Terras do Vale</p>
-                  <p className="text-gray-500">Pavimentação e Vias Urbanas</p>
-                </div>
-                <span className="bg-blue-50 text-blue-700 px-2.5 py-1 rounded-full font-bold text-[11px]">
-                  Em Execução
-                </span>
-              </li>
-            </ul>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Fornecedores */}
+            <div className="bg-white p-6 rounded-2xl border border-[#DEE2E6] shadow-xs flex flex-col">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-bold text-[#010102] text-base flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[#E03131]">store</span>
+                  Fornecedores de Insumos da Usina ({fornecedoresList.length})
+                </h3>
+              </div>
+              {fornecedoresList.length === 0 ? (
+                <EmptyState
+                  title="Nenhum fornecedor encontrado"
+                  description="Cadastre seus fornecedores de brita, cimento asfáltico (CAP) e maquinário."
+                  actionLabel="Cadastrar Fornecedor"
+                  onAction={() => {
+                    setNewPartnerTipo('fornecedor');
+                    setIsPartnerModalOpen(true);
+                  }}
+                />
+              ) : (
+                <ul className="divide-y divide-gray-100 text-xs flex-1">
+                  {fornecedoresList.map((f) => (
+                    <li key={f.id} className="py-3.5 flex justify-between items-start gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="font-bold text-gray-900 truncate">{f.nome}</p>
+                          {f.nomeFantasia && f.nomeFantasia !== f.nome && (
+                            <span className="text-gray-500 text-[11px]">({f.nomeFantasia})</span>
+                          )}
+                        </div>
+                        {f.ramoAtividade && (
+                          <p className="text-gray-500 text-[11px] mt-0.5">{f.ramoAtividade}</p>
+                        )}
+                        <div className="flex flex-wrap items-center gap-2 mt-1 text-[11px] text-gray-600">
+                          {f.documento && (
+                            <span className="bg-gray-100 px-1.5 py-0.5 rounded font-mono text-[10px]">
+                              {f.documento}
+                            </span>
+                          )}
+                          {f.cidadeUf && <span>{f.cidadeUf}</span>}
+                          {f.telefone && <span>Tel: {f.telefone}</span>}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => {
+                          if (confirm(`Deseja remover "${f.nome}" da lista de parceiros?`)) {
+                            deletePartner(f.id);
+                          }
+                        }}
+                        className="text-gray-400 hover:text-red-600 p-1 rounded hover:bg-red-50 transition-colors"
+                        title="Excluir parceiro"
+                      >
+                        <span className="material-symbols-outlined text-[18px]">delete</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            {/* Clientes */}
+            <div className="bg-white p-6 rounded-2xl border border-[#DEE2E6] shadow-xs flex flex-col">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-bold text-[#010102] text-base flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[#2F9E44]">business</span>
+                  Clientes & Contratantes de Asfalto ({clientesList.length})
+                </h3>
+              </div>
+              {clientesList.length === 0 ? (
+                <EmptyState
+                  title="Nenhum cliente cadastrado"
+                  description="Cadastre prefeituras, construtoras e condomínios que compram massa asfáltica."
+                  actionLabel="Cadastrar Cliente"
+                  onAction={() => {
+                    setNewPartnerTipo('cliente');
+                    setIsPartnerModalOpen(true);
+                  }}
+                />
+              ) : (
+                <ul className="divide-y divide-gray-100 text-xs flex-1">
+                  {clientesList.map((c) => (
+                    <li key={c.id} className="py-3.5 flex justify-between items-start gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="font-bold text-gray-900 truncate">{c.nome}</p>
+                          {c.nomeFantasia && c.nomeFantasia !== c.nome && (
+                            <span className="text-gray-500 text-[11px]">({c.nomeFantasia})</span>
+                          )}
+                        </div>
+                        {c.ramoAtividade && (
+                          <p className="text-gray-500 text-[11px] mt-0.5">{c.ramoAtividade}</p>
+                        )}
+                        <div className="flex flex-wrap items-center gap-2 mt-1 text-[11px] text-gray-600">
+                          {c.documento && (
+                            <span className="bg-gray-100 px-1.5 py-0.5 rounded font-mono text-[10px]">
+                              {c.documento}
+                            </span>
+                          )}
+                          {c.cidadeUf && <span>{c.cidadeUf}</span>}
+                          {c.contato && <span>Contato: {c.contato}</span>}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => {
+                          if (confirm(`Deseja remover "${c.nome}" da lista de clientes?`)) {
+                            deletePartner(c.id);
+                          }
+                        }}
+                        className="text-gray-400 hover:text-red-600 p-1 rounded hover:bg-red-50 transition-colors"
+                        title="Excluir cliente"
+                      >
+                        <span className="material-symbols-outlined text-[18px]">delete</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -549,6 +692,115 @@ export const CadastrosView: React.FC = () => {
               { value: 'bolt', label: 'Energia Elétrica' },
               { value: 'receipt', label: 'Impostos e Tributos' },
             ]}
+          />
+        </form>
+      </Modal>
+
+      {/* Modal Novo Parceiro Comercial */}
+      <Modal
+        isOpen={isPartnerModalOpen}
+        onClose={() => setIsPartnerModalOpen(false)}
+        title="Novo Parceiro Comercial"
+        subtitle="Cadastre clientes ou fornecedores para agilizar propostas e lançamentos."
+        size="md"
+        footer={
+          <>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setIsPartnerModalOpen(false)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              icon="save"
+              onClick={handleAddPartner}
+            >
+              Salvar Parceiro
+            </Button>
+          </>
+        }
+      >
+        <form onSubmit={handleAddPartner} className="flex flex-col gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Select
+              label="Tipo de Parceiro *"
+              value={newPartnerTipo}
+              onChange={(e) => setNewPartnerTipo(e.target.value as PartnerType)}
+              options={[
+                { value: 'fornecedor', label: 'Fornecedor de Insumos / Serviços' },
+                { value: 'cliente', label: 'Cliente / Contratante de Asfalto' },
+                { value: 'ambos', label: 'Ambos (Cliente e Fornecedor)' },
+              ]}
+            />
+            <Input
+              label="CNPJ / CPF"
+              placeholder="00.000.000/0001-00"
+              value={newPartnerDoc}
+              onChange={(e) => setNewPartnerDoc(e.target.value)}
+            />
+          </div>
+
+          <Input
+            label="Razão Social / Nome Oficial *"
+            placeholder="Ex: Petrobras Distribuidora S.A. ou Construtora Alpha"
+            value={newPartnerNome}
+            onChange={(e) => setNewPartnerNome(e.target.value)}
+            required
+            autoFocus
+          />
+
+          <Input
+            label="Nome Fantasia / Apelido Comercial"
+            placeholder="Ex: Petrobras Asfalto ou Alpha Engenharia"
+            value={newPartnerFantasia}
+            onChange={(e) => setNewPartnerFantasia(e.target.value)}
+          />
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Input
+              label="Nome do Contato / Fiscal"
+              placeholder="Ex: Eng. Roberto Santos"
+              value={newPartnerContato}
+              onChange={(e) => setNewPartnerContato(e.target.value)}
+            />
+            <Input
+              label="Telefone / WhatsApp"
+              placeholder="(11) 98765-4321"
+              value={newPartnerTelefone}
+              onChange={(e) => setNewPartnerTelefone(e.target.value)}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Input
+              label="E-mail"
+              placeholder="comercial@empresa.com.br"
+              value={newPartnerEmail}
+              onChange={(e) => setNewPartnerEmail(e.target.value)}
+            />
+            <Input
+              label="Cidade / UF"
+              placeholder="Ex: São Paulo/SP"
+              value={newPartnerCidadeUf}
+              onChange={(e) => setNewPartnerCidadeUf(e.target.value)}
+            />
+          </div>
+
+          <Input
+            label="Endereço Completo"
+            placeholder="Rua, Número, Bairro, CEP"
+            value={newPartnerEndereco}
+            onChange={(e) => setNewPartnerEndereco(e.target.value)}
+          />
+
+          <Input
+            label="Ramo de Atividade / Insumos Principais"
+            placeholder="Ex: Brita 0, Areia Industrial, CAP 50/70, Recapeamento"
+            value={newPartnerRamo}
+            onChange={(e) => setNewPartnerRamo(e.target.value)}
           />
         </form>
       </Modal>

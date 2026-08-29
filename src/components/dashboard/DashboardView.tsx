@@ -8,6 +8,8 @@ export const DashboardView: React.FC = () => {
     transactions,
     accounts,
     quotes,
+    userRole,
+    permissions,
     setCurrentView,
     openNovoLancamentoWithTab,
     saldoAtual,
@@ -158,38 +160,45 @@ export const DashboardView: React.FC = () => {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           title="Saldo Atual em Caixa"
-          value={formatCurrency(saldoAtual)}
+          value={permissions.canViewBalances ? formatCurrency(saldoAtual) : '•••••••• (Sigiloso)'}
           icon="account_balance_wallet"
           variant="primary"
-          subtitle="Disponibilidade imediata"
-          onClick={() => setCurrentView('lancamentos')}
+          subtitle={permissions.canViewBalances ? 'Disponibilidade imediata' : 'Acesso restrito à Diretoria/Financeiro'}
+          onClick={() => permissions.canViewTransactions && setCurrentView('lancamentos')}
         />
 
         <StatCard
           title="Entradas do Mês"
-          value={formatCurrency(entradasDoMes)}
+          value={permissions.canViewBalances ? formatCurrency(entradasDoMes) : '••••••••'}
           icon="arrow_upward"
           variant="success"
-          trend={{ value: '+14% vs mês anterior', isPositive: true }}
-          onClick={() => setCurrentView('lancamentos')}
+          trend={permissions.canViewBalances ? { value: '+14% vs mês anterior', isPositive: true } : undefined}
+          subtitle={!permissions.canViewBalances ? 'Acesso restrito' : undefined}
+          onClick={() => permissions.canViewTransactions && setCurrentView('lancamentos')}
         />
 
         <StatCard
           title="Saídas do Mês"
-          value={formatCurrency(saidasDoMes)}
+          value={permissions.canViewBalances ? formatCurrency(saidasDoMes) : '••••••••'}
           icon="arrow_downward"
           variant="danger"
-          subtitle="Insumos, CAP e Folha"
-          onClick={() => setCurrentView('lancamentos')}
+          subtitle={permissions.canViewBalances ? 'Insumos, CAP e Folha' : 'Acesso restrito'}
+          onClick={() => permissions.canViewTransactions && setCurrentView('lancamentos')}
         />
 
         <StatCard
           title="Compromissos a Vencer"
-          value={`${contasVencendoSemana} contas`}
-          icon="event_upcoming"
-          variant={contasEmAtraso > 0 ? 'warning' : 'default'}
-          subtitle={contasEmAtraso > 0 ? `${contasEmAtraso} em atraso` : 'Próximos 7 dias'}
-          onClick={() => setCurrentView('contas')}
+          value={permissions.canManageAccounts ? `${contasVencendoSemana} contas` : `${quotes.length} orçamentos`}
+          icon={permissions.canManageAccounts ? 'event_upcoming' : 'request_quote'}
+          variant={contasEmAtraso > 0 && permissions.canManageAccounts ? 'warning' : 'default'}
+          subtitle={
+            permissions.canManageAccounts
+              ? contasEmAtraso > 0
+                ? `${contasEmAtraso} em atraso`
+                : 'Próximos 7 dias'
+              : 'Propostas Comerciais'
+          }
+          onClick={() => setCurrentView(permissions.canManageAccounts ? 'contas' : 'orcamentos')}
         />
       </div>
 

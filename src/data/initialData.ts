@@ -5,16 +5,124 @@ import {
   Category,
   BankAccount,
   UserProfile,
+  SystemUser,
+  UserRole,
+  RolePermissions,
   SystemNotification,
   Quote,
   QuoteCatalogItem,
-  LetterheadSettings
+  LetterheadSettings,
+  BusinessPartner
 } from '../types';
 
+export const ROLE_PERMISSIONS_MAP: Record<UserRole, RolePermissions> = {
+  admin: {
+    canViewDashboard: true,
+    canViewBalances: true,
+    canManageTransactions: true,
+    canManageAccounts: true,
+    canManageQuotes: true,
+    canManageCadastros: true,
+    canViewReports: true,
+    canManageSettings: true,
+    canManageUsers: true,
+  },
+  financeiro: {
+    canViewDashboard: true,
+    canViewBalances: true,
+    canManageTransactions: true,
+    canManageAccounts: true,
+    canManageQuotes: true,
+    canManageCadastros: true,
+    canViewReports: true,
+    canManageSettings: false,
+    canManageUsers: false,
+  },
+  comercial: {
+    canViewDashboard: true,
+    canViewBalances: false,
+    canManageTransactions: false,
+    canManageAccounts: false,
+    canManageQuotes: true,
+    canManageCadastros: true,
+    canViewReports: false,
+    canManageSettings: false,
+    canManageUsers: false,
+  },
+  operador: {
+    canViewDashboard: true,
+    canViewBalances: false,
+    canManageTransactions: true, // Apenas despesas operacionais rápidas de pista / diárias
+    canManageAccounts: false,
+    canManageQuotes: false,
+    canManageCadastros: true, // Visualizar motoristas e equipes
+    canViewReports: false,
+    canManageSettings: false,
+    canManageUsers: false,
+  }
+};
+
+export const INITIAL_SYSTEM_USERS: SystemUser[] = [
+  {
+    id: 'user-admin-1',
+    name: 'Carlos Oliveira',
+    email: 'carlos.diretoria@asphaltpro.com.br',
+    role: 'admin',
+    roleTitle: 'Diretor de Operações & Sócio',
+    department: 'Diretoria Executiva',
+    avatarUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuB7LkHlJKY7QjurPQFmQAzY7wrUoQvzbkf96mcEvjVg4yWEewc9S01rdk5-KwEfqKsLoY_Ui6xuWB3CJxdksTsQsmZhoXuFwLBuRIGqnG9nvnagE4qFD2RBIaHW3ub0GXDb_0xHACM5AkJKCEQYF7ksj-FlERm_EH2mzPxoalt1JfT364i_D3AEKOgsj7oic4VGcn6Gzw92ljQdO41U8AwbhqqSugM464BKj51SwUv_pd0kM9lCg7cpOw',
+    status: 'ativo',
+    phone: '(11) 98765-4321',
+    createdAt: '2024-01-10T08:00:00.000Z',
+    lastLogin: 'Hoje às 09:15'
+  },
+  {
+    id: 'user-fin-2',
+    name: 'Mariana Santos',
+    email: 'mariana.financeiro@asphaltpro.com.br',
+    role: 'financeiro',
+    roleTitle: 'Gerente Financeira & Controladoria',
+    department: 'Controladoria & Finanças',
+    avatarUrl: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80',
+    status: 'ativo',
+    phone: '(11) 97654-3210',
+    createdAt: '2024-02-01T09:00:00.000Z',
+    lastLogin: 'Hoje às 08:42'
+  },
+  {
+    id: 'user-com-3',
+    name: 'Eng. Roberto Mendes',
+    email: 'roberto.comercial@asphaltpro.com.br',
+    role: 'comercial',
+    roleTitle: 'Engenheiro de Vendas & Orçamentos',
+    department: 'Comercial & Pavimentação',
+    avatarUrl: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=150&auto=format&fit=crop&q=80',
+    status: 'ativo',
+    phone: '(11) 96543-2109',
+    createdAt: '2024-03-15T10:30:00.000Z',
+    lastLogin: 'Ontem às 17:10'
+  },
+  {
+    id: 'user-op-4',
+    name: 'Valdir Martins',
+    email: 'valdir.balanca@asphaltpro.com.br',
+    role: 'operador',
+    roleTitle: 'Operador Chefe de Balança & Usina',
+    department: 'Operações de Pista & Balança',
+    avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
+    status: 'ativo',
+    phone: '(11) 95432-1098',
+    createdAt: '2024-04-05T07:00:00.000Z',
+    lastLogin: 'Hoje às 06:50'
+  }
+];
+
 export const INITIAL_USER: UserProfile = {
+  id: 'user-admin-1',
   name: 'Carlos Oliveira',
-  role: 'Manager',
-  email: 'usuario@asphaltpro.com.br',
+  role: 'Diretor de Operações',
+  userRole: 'admin',
+  email: 'carlos.diretoria@asphaltpro.com.br',
   avatarUrl: 'https://lh3.googleusercontent.com/aida-public/AB6AXuB7LkHlJKY7QjurPQFmQAzY7wrUoQvzbkf96mcEvjVg4yWEewc9S01rdk5-KwEfqKsLoY_Ui6xuWB3CJxdksTsQsmZhoXuFwLBuRIGqnG9nvnagE4qFD2RBIaHW3ub0GXDb_0xHACM5AkJKCEQYF7ksj-FlERm_EH2mzPxoalt1JfT364i_D3AEKOgsj7oic4VGcn6Gzw92ljQdO41U8AwbhqqSugM464BKj51SwUv_pd0kM9lCg7cpOw',
   status: 'Active'
 };
@@ -666,3 +774,127 @@ export const INITIAL_NOTIFICATIONS: SystemNotification[] = [
     lida: true
   }
 ];
+
+export const INITIAL_PARTNERS: BusinessPartner[] = [
+  {
+    id: 'part-1',
+    nome: 'Petrobras Distribuidora S.A.',
+    nomeFantasia: 'Petrobras Asfalto',
+    tipo: 'fornecedor',
+    documento: '33.000.167/0001-01',
+    contato: 'Gerência de Vendas Especiais',
+    telefone: '(11) 3003-0200',
+    email: 'vendas.asfalto@petrobras.com.br',
+    cidadeUf: 'Cubatão/SP',
+    endereco: 'Refinaria Presidente Bernardes - SP',
+    ramoAtividade: 'Cimento Asfáltico de Petróleo (CAP 50/70, CAP 30/45)',
+    categoriaPadrao: 'Matéria Prima (CAP / Brita)',
+    status: 'ativo'
+  },
+  {
+    id: 'part-2',
+    nome: 'Pedreira São Jorge Ltda.',
+    nomeFantasia: 'Pedreira São Jorge',
+    tipo: 'fornecedor',
+    documento: '45.123.789/0001-90',
+    contato: 'Marcos Balancista / Suprimentos',
+    telefone: '(11) 4712-3400',
+    email: 'pedidos@pedreirasaojorge.com.br',
+    cidadeUf: 'Mogi das Cruzes/SP',
+    endereco: 'Estrada da Pedreira, Km 12',
+    ramoAtividade: 'Brita 0, Brita 1, Areia Industrial e Pó de Pedra',
+    categoriaPadrao: 'Matéria Prima (CAP / Brita)',
+    status: 'ativo'
+  },
+  {
+    id: 'part-3',
+    nome: 'Votorantim Cimentos S.A.',
+    nomeFantasia: 'Votorantim Cimentos',
+    tipo: 'fornecedor',
+    documento: '61.064.838/0001-44',
+    contato: 'Depto. Comercial Granel',
+    telefone: '(11) 3133-7000',
+    email: 'comercial@votorantim.com',
+    cidadeUf: 'São Paulo/SP',
+    endereco: 'Praça Professor José Lannes, 40 - Brooklin',
+    ramoAtividade: 'Cimento Portland Especial e Fíler Calcário',
+    categoriaPadrao: 'Matéria Prima (CAP / Brita)',
+    status: 'ativo'
+  },
+  {
+    id: 'part-4',
+    nome: 'Caterpillar Locações e Equipamentos S.A.',
+    nomeFantasia: 'Cat Rental Store',
+    tipo: 'fornecedor',
+    documento: '52.124.980/0001-33',
+    contato: 'Atendimento Linha Amarela',
+    telefone: '(11) 4004-9800',
+    email: 'locacao@caterpillar.com.br',
+    cidadeUf: 'Piracicaba/SP',
+    endereco: 'Rodovia SP-304, Km 158',
+    ramoAtividade: 'Vibroacabadoras, Rolos Compactadores e Fresadoras',
+    categoriaPadrao: 'Equipamentos',
+    status: 'ativo'
+  },
+  {
+    id: 'part-5',
+    nome: 'Secretaria Municipal de Obras & Infraestrutura',
+    nomeFantasia: 'Prefeitura Municipal / Sec. Obras',
+    tipo: 'cliente',
+    documento: '46.395.000/0001-39',
+    contato: 'Eng. Roberto Santos - Fiscal de Obras',
+    telefone: '(11) 3397-4000',
+    email: 'obras.infra@prefeitura.sp.gov.br',
+    cidadeUf: 'São Paulo/SP',
+    endereco: 'Rua São Bento, 405 - Centro Histórico',
+    ramoAtividade: 'Órgão Público / Recapeamento e Vias Urbanas',
+    categoriaPadrao: 'Receita de Serviços',
+    status: 'ativo'
+  },
+  {
+    id: 'part-6',
+    nome: 'Construtora Alpha Engenharia Ltda.',
+    nomeFantasia: 'Alpha Engenharia',
+    tipo: 'cliente',
+    documento: '12.876.543/0001-21',
+    contato: 'Carlos Eduardo Alencar (Diretor de Obras)',
+    telefone: '(11) 98765-4321',
+    email: 'compras@alphaengenharia.com.br',
+    cidadeUf: 'Campinas/SP',
+    endereco: 'Av. Eng. Carlos Stevenson, 1200 - Nova Campinas',
+    ramoAtividade: 'Infraestrutura Rodoviária e Loteamentos',
+    categoriaPadrao: 'Receita de Serviços',
+    status: 'ativo'
+  },
+  {
+    id: 'part-7',
+    nome: 'Residencial Terras do Vale Empreendimentos',
+    nomeFantasia: 'Terras do Vale Urbanismo',
+    tipo: 'cliente',
+    documento: '28.910.345/0001-67',
+    contato: 'Juliana Mendes (Engenheira Residente)',
+    telefone: '(11) 97123-8899',
+    email: 'suprimentos@terrasdovale.com.br',
+    cidadeUf: 'São José dos Campos/SP',
+    endereco: 'Estrada Municipal Vale Verde, s/n - Gleba 4',
+    ramoAtividade: 'Pavimentação de Condomínios e Acessos',
+    categoriaPadrao: 'Receita de Serviços',
+    status: 'ativo'
+  },
+  {
+    id: 'part-8',
+    nome: 'Logística Sudeste S.A.',
+    nomeFantasia: 'Sudeste Terminais & Logística',
+    tipo: 'cliente',
+    documento: '09.345.678/0001-12',
+    contato: 'Marcos Vinícius Prado',
+    telefone: '(11) 98822-1144',
+    email: 'operacoes@logisticasudeste.com.br',
+    cidadeUf: 'Santos/SP',
+    endereco: 'Av. Cândido Gaffrée, s/n - Porto Organizado',
+    ramoAtividade: 'Pátios Industriais e Pavimentação Pesada',
+    categoriaPadrao: 'Receita de Serviços',
+    status: 'ativo'
+  }
+];
+

@@ -27,3 +27,8 @@ export type { SelectProps, SelectOption } from './Select';
 
 export { Toast } from './Toast';
 export { HelpModal } from './HelpModal';
+export { ErrorBoundary } from './ErrorBoundary';
+export { ErrorDiagnosticsModal } from './ErrorDiagnosticsModal';
+export { PartnerAutocomplete } from './PartnerAutocomplete';
+export type { PartnerAutocompleteProps } from './PartnerAutocomplete';
+

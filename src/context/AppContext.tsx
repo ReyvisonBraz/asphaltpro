@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { syncManager } from '../services/syncManager';
+import { errorDiagnosticsService } from '../services/errorDiagnosticsService';
 import {
   ViewMode,
   Transaction,
@@ -8,15 +9,25 @@ import {
   Category,
   BankAccount,
   UserProfile,
+  SystemUser,
+  UserRole,
+  RolePermissions,
   SystemNotification,
   Quote,
   QuoteCatalogItem,
   LetterheadSettings,
   QuoteStatus,
-  QuoteConversionOptions
+  QuoteConversionOptions,
+  AppErrorRecord,
+  ErrorModule,
+  ErrorSeverity,
+  BusinessPartner,
+  PartnerType,
 } from '../types';
 import {
   INITIAL_USER,
+  INITIAL_SYSTEM_USERS,
+  ROLE_PERMISSIONS_MAP,
   INITIAL_TRANSACTIONS,
   INITIAL_ACCOUNTS,
   INITIAL_EMPLOYEES,
@@ -25,16 +36,27 @@ import {
   INITIAL_NOTIFICATIONS,
   INITIAL_QUOTES,
   INITIAL_QUOTE_CATALOG,
-  INITIAL_LETTERHEAD_SETTINGS
+  INITIAL_LETTERHEAD_SETTINGS,
+  INITIAL_PARTNERS
 } from '../data/initialData';
 
 interface AppContextType {
   isAuthenticated: boolean;
   user: UserProfile;
-  login: (email: string, pass: string) => boolean;
+  userRole: UserRole;
+  permissions: RolePermissions;
+  systemUsers: SystemUser[];
+  switchUser: (userId: string) => void;
+  login: (email: string, pass: string, roleOverride?: UserRole) => boolean;
   logout: () => void;
   currentView: ViewMode;
   setCurrentView: (view: ViewMode) => void;
+  
+  // User Management
+  addSystemUser: (userData: Omit<SystemUser, 'id' | 'createdAt'>) => void;
+  updateSystemUser: (id: string, userData: Partial<SystemUser>) => void;
+  toggleSystemUserStatus: (id: string) => void;
+  deleteSystemUser: (id: string) => void;
   
   // Data State
   transactions: Transaction[];
@@ -52,6 +74,13 @@ interface AppContextType {
   toggleEmployeeStatus: (id: string) => void;
   deleteEmployee: (id: string) => void;
   
+  // Business Partners (Clientes e Fornecedores)
+  partners: BusinessPartner[];
+  addPartner: (partner: Omit<BusinessPartner, 'id'>) => void;
+  updatePartner: (id: string, partner: Partial<BusinessPartner>) => void;
+  deletePartner: (id: string) => void;
+  getUnifiedPartners: (filterType?: 'cliente' | 'fornecedor' | 'ambos') => BusinessPartner[];
+
   categories: Category[];
   bankAccounts: BankAccount[];
   notifications: SystemNotification[];
@@ -110,9 +139,35 @@ interface AppContextType {
   globalSearch: string;
   setGlobalSearch: (search: string) => void;
 
-  // Toast Notification
-  toastMessage: { text: string; type: 'success' | 'info' | 'error' } | null;
-  showToast: (text: string, type?: 'success' | 'info' | 'error') => void;
+  // Toast Notification & Error Diagnostics
+  toastMessage: { 
+    text: string; 
+    type: 'success' | 'info' | 'error';
+    errorCode?: string;
+    resolucao?: string;
+    errorId?: string;
+  } | null;
+  showToast: (
+    text: string, 
+    type?: 'success' | 'info' | 'error',
+    options?: { errorCode?: string; resolucao?: string; errorId?: string }
+  ) => void;
+
+  isDiagnosticsOpen: boolean;
+  setIsDiagnosticsOpen: (open: boolean) => void;
+  selectedDiagnosticErrorId: string | null;
+  setSelectedDiagnosticErrorId: (id: string | null) => void;
+  openDiagnosticsWithError: (id?: string) => void;
+  reportSystemError: (params: {
+    modulo: ErrorModule;
+    acao: string;
+    titulo: string;
+    mensagem: string;
+    codigo?: string;
+    severidade?: ErrorSeverity;
+    resolucaoSugerida?: string;
+    errorObj?: unknown;
+  }) => AppErrorRecord;
 
   // Computed Financial Aggregates
   saldoAtual: number;
@@ -140,10 +195,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return saved ? JSON.parse(saved) : true; // default logged in for immediate review
   });
 
+  // System Users & Roles State
+  const [systemUsers, setSystemUsers] = useState<SystemUser[]>(() => {
+    const saved = localStorage.getItem('asphalt_system_users');
+    return saved ? JSON.parse(saved) : INITIAL_SYSTEM_USERS;
+  });
+
   const [user, setUser] = useState<UserProfile>(() => {
     const saved = localStorage.getItem('asphalt_user');
     return saved ? JSON.parse(saved) : INITIAL_USER;
   });
+
+  const userRole: UserRole = (user.userRole as UserRole) || 'admin';
+  const permissions: RolePermissions = ROLE_PERMISSIONS_MAP[userRole] || ROLE_PERMISSIONS_MAP.admin;
 
   const [currentView, setCurrentView] = useState<ViewMode>('dashboard');
 
@@ -163,6 +227,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [employees, setEmployees] = useState<Employee[]>(() => {
     const saved = localStorage.getItem('asphalt_employees');
     return saved ? JSON.parse(saved) : INITIAL_EMPLOYEES;
+  });
+
+  // Business Partners State (Clientes e Fornecedores)
+  const [partners, setPartners] = useState<BusinessPartner[]>(() => {
+    const saved = localStorage.getItem('asphalt_partners');
+    return saved ? JSON.parse(saved) : INITIAL_PARTNERS;
   });
 
   // Quotes State
@@ -209,61 +279,351 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [isDiagnosticsOpen, setIsDiagnosticsOpen] = useState(false);
+  const [selectedDiagnosticErrorId, setSelectedDiagnosticErrorId] = useState<string | null>(null);
   const [globalSearch, setGlobalSearch] = useState('');
-  const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'info' | 'error' } | null>(null);
+  const [toastMessage, setToastMessage] = useState<{ 
+    text: string; 
+    type: 'success' | 'info' | 'error';
+    errorCode?: string;
+    resolucao?: string;
+    errorId?: string;
+  } | null>(null);
 
   // Save to localStorage
   useEffect(() => {
-    localStorage.setItem('asphalt_auth', JSON.stringify(isAuthenticated));
+    try {
+      localStorage.setItem('asphalt_auth', JSON.stringify(isAuthenticated));
+    } catch (err) {
+      errorDiagnosticsService.recordError({
+        modulo: 'sistema_storage',
+        acao: 'Salvar Sessão de Autenticação',
+        titulo: 'Erro ao persistir sessão',
+        mensagem: 'Não foi possível gravar os dados de autenticação no armazenamento local.',
+        codigo: 'ERR_STORAGE_AUTH',
+        severidade: 'baixo',
+        errorObj: err,
+      });
+    }
   }, [isAuthenticated]);
 
   useEffect(() => {
-    localStorage.setItem('asphalt_transactions', JSON.stringify(transactions));
+    try {
+      localStorage.setItem('asphalt_user', JSON.stringify(user));
+    } catch (err) {
+      errorDiagnosticsService.recordError({
+        modulo: 'sistema_storage',
+        acao: 'Salvar Perfil do Usuário',
+        titulo: 'Erro ao persistir perfil',
+        mensagem: 'Não foi possível gravar o perfil ativo no armazenamento local.',
+        codigo: 'ERR_STORAGE_USER',
+        severidade: 'baixo',
+        errorObj: err,
+      });
+    }
+  }, [user]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('asphalt_system_users', JSON.stringify(systemUsers));
+    } catch (err) {
+      errorDiagnosticsService.recordError({
+        modulo: 'sistema_storage',
+        acao: 'Salvar Usuários do Sistema',
+        titulo: 'Erro ao persistir lista de usuários',
+        mensagem: 'Armazenamento local cheio ou indisponível.',
+        codigo: 'ERR_STORAGE_SYSTEM_USERS',
+        severidade: 'alto',
+        errorObj: err,
+      });
+    }
+  }, [systemUsers]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('asphalt_transactions', JSON.stringify(transactions));
+    } catch (err) {
+      errorDiagnosticsService.recordError({
+        modulo: 'sistema_storage',
+        acao: 'Salvar Lançamentos Financeiros',
+        titulo: 'Falha ao salvar lançamentos no banco local',
+        mensagem: 'A cota de armazenamento do navegador pode estar próxima do limite.',
+        codigo: 'ERR_STORAGE_TRANSACTIONS',
+        severidade: 'critico',
+        resolucaoSugerida: 'Exporte um backup em Configurações > Backup e limpe registros antigos.',
+        errorObj: err,
+      });
+    }
   }, [transactions]);
 
   useEffect(() => {
-    localStorage.setItem('asphalt_accounts', JSON.stringify(accounts));
+    try {
+      localStorage.setItem('asphalt_accounts', JSON.stringify(accounts));
+    } catch (err) {
+      errorDiagnosticsService.recordError({
+        modulo: 'sistema_storage',
+        acao: 'Salvar Contas a Pagar/Receber',
+        titulo: 'Falha ao salvar contas no banco local',
+        mensagem: 'Não foi possível persistir as contas a pagar e receber.',
+        codigo: 'ERR_STORAGE_ACCOUNTS',
+        severidade: 'alto',
+        errorObj: err,
+      });
+    }
   }, [accounts]);
 
   useEffect(() => {
-    localStorage.setItem('asphalt_employees', JSON.stringify(employees));
+    try {
+      localStorage.setItem('asphalt_employees', JSON.stringify(employees));
+    } catch (err) {
+      errorDiagnosticsService.recordError({
+        modulo: 'sistema_storage',
+        acao: 'Salvar Colaboradores',
+        titulo: 'Erro ao persistir colaboradores',
+        mensagem: 'Falha ao gravar lista de funcionários.',
+        codigo: 'ERR_STORAGE_EMPLOYEES',
+        severidade: 'medio',
+        errorObj: err,
+      });
+    }
   }, [employees]);
 
   useEffect(() => {
-    localStorage.setItem('asphalt_quotes', JSON.stringify(quotes));
+    try {
+      localStorage.setItem('asphalt_partners', JSON.stringify(partners));
+    } catch (err) {
+      errorDiagnosticsService.recordError({
+        modulo: 'sistema_storage',
+        acao: 'Salvar Parceiros Comerciais',
+        titulo: 'Erro ao persistir parceiros',
+        mensagem: 'Falha ao gravar lista de clientes e fornecedores.',
+        codigo: 'ERR_STORAGE_PARTNERS',
+        severidade: 'medio',
+        errorObj: err,
+      });
+    }
+  }, [partners]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('asphalt_quotes', JSON.stringify(quotes));
+    } catch (err) {
+      errorDiagnosticsService.recordError({
+        modulo: 'sistema_storage',
+        acao: 'Salvar Orçamentos',
+        titulo: 'Falha ao salvar propostas comerciais',
+        mensagem: 'Não foi possível persistir os orçamentos no armazenamento local.',
+        codigo: 'ERR_STORAGE_QUOTES',
+        severidade: 'alto',
+        errorObj: err,
+      });
+    }
   }, [quotes]);
 
   useEffect(() => {
-    localStorage.setItem('asphalt_quote_catalog', JSON.stringify(quoteCatalog));
+    try {
+      localStorage.setItem('asphalt_quote_catalog', JSON.stringify(quoteCatalog));
+    } catch (err) {
+      errorDiagnosticsService.recordError({
+        modulo: 'sistema_storage',
+        acao: 'Salvar Catálogo CBUQ',
+        titulo: 'Erro ao persistir catálogo',
+        mensagem: 'Falha ao salvar itens de produtos e serviços.',
+        codigo: 'ERR_STORAGE_CATALOG',
+        severidade: 'baixo',
+        errorObj: err,
+      });
+    }
   }, [quoteCatalog]);
 
   useEffect(() => {
-    localStorage.setItem('asphalt_letterhead_settings', JSON.stringify(letterheadSettings));
+    try {
+      localStorage.setItem('asphalt_letterhead_settings', JSON.stringify(letterheadSettings));
+    } catch (err) {
+      errorDiagnosticsService.recordError({
+        modulo: 'sistema_storage',
+        acao: 'Salvar Configurações A4',
+        titulo: 'Erro ao persistir papel timbrado',
+        mensagem: 'A imagem de papel timbrado pode ser muito grande para o LocalStorage.',
+        codigo: 'ERR_STORAGE_LETTERHEAD',
+        severidade: 'medio',
+        resolucaoSugerida: 'Utilize uma imagem menor que 1.5MB para evitar atingir o limite do navegador.',
+        errorObj: err,
+      });
+    }
   }, [letterheadSettings]);
 
   useEffect(() => {
-    localStorage.setItem('asphalt_notifications', JSON.stringify(notifications));
+    try {
+      localStorage.setItem('asphalt_notifications', JSON.stringify(notifications));
+    } catch (err) {
+      // ignore
+    }
   }, [notifications]);
 
-  const showToast = (text: string, type: 'success' | 'info' | 'error' = 'success') => {
-    setToastMessage({ text, type });
+  const showToast = (
+    text: string, 
+    type: 'success' | 'info' | 'error' = 'success',
+    options?: { errorCode?: string; resolucao?: string; errorId?: string }
+  ) => {
+    setToastMessage({
+      text,
+      type,
+      errorCode: options?.errorCode,
+      resolucao: options?.resolucao,
+      errorId: options?.errorId,
+    });
+    // Se for erro, fica visível um pouco mais de tempo (5s) para leitura
+    const duration = type === 'error' ? 6000 : 3500;
     setTimeout(() => {
       setToastMessage(null);
-    }, 3500);
+    }, duration);
   };
 
-  const login = (email: string, pass: string) => {
-    if (email && pass) {
+  const openDiagnosticsWithError = (id?: string) => {
+    if (id) {
+      setSelectedDiagnosticErrorId(id);
+    }
+    setIsDiagnosticsOpen(true);
+  };
+
+  const reportSystemError = (params: {
+    modulo: ErrorModule;
+    acao: string;
+    titulo: string;
+    mensagem: string;
+    codigo?: string;
+    severidade?: ErrorSeverity;
+    resolucaoSugerida?: string;
+    errorObj?: unknown;
+  }): AppErrorRecord => {
+    const record = errorDiagnosticsService.recordError(params);
+    showToast(params.mensagem, 'error', {
+      errorCode: record.codigo,
+      resolucao: record.resolucaoSugerida,
+      errorId: record.id,
+    });
+    return record;
+  };
+
+  const switchUser = (userId: string) => {
+    const targetUser = systemUsers.find(u => u.id === userId);
+    if (targetUser) {
+      if (targetUser.status === 'inativo') {
+        showToast(`O usuário ${targetUser.name} está inativo no sistema.`, 'error');
+        return;
+      }
+      const updatedProfile: UserProfile = {
+        id: targetUser.id,
+        name: targetUser.name,
+        role: targetUser.roleTitle,
+        userRole: targetUser.role,
+        email: targetUser.email,
+        avatarUrl: targetUser.avatarUrl,
+        status: 'Active'
+      };
+      setUser(updatedProfile);
+      showToast(`Perfil alternado para ${targetUser.name} (${targetUser.roleTitle})`, 'info');
+      syncManager.addLog(`Perfil alternado para ${targetUser.name} [Perfil: ${targetUser.role}]`, 'info');
+    }
+  };
+
+  const login = (email: string, pass: string, roleOverride?: UserRole) => {
+    if (!email && !pass && !roleOverride) return false;
+
+    let matchedUser = systemUsers.find(u => u.email.toLowerCase() === email.toLowerCase());
+    if (!matchedUser && roleOverride) {
+      matchedUser = systemUsers.find(u => u.role === roleOverride);
+    }
+    if (!matchedUser && systemUsers.length > 0) {
+      matchedUser = systemUsers[0];
+    }
+
+    if (matchedUser) {
+      if (matchedUser.status === 'inativo') {
+        showToast('Esta conta de usuário foi inativada. Contate o Administrador.', 'error');
+        return false;
+      }
+      const updatedProfile: UserProfile = {
+        id: matchedUser.id,
+        name: matchedUser.name,
+        role: matchedUser.roleTitle,
+        userRole: matchedUser.role,
+        email: matchedUser.email,
+        avatarUrl: matchedUser.avatarUrl,
+        status: 'Active'
+      };
+      setUser(updatedProfile);
       setIsAuthenticated(true);
-      showToast('Bem-vindo ao Asphalt Pro!', 'success');
+      showToast(`Bem-vindo(a), ${matchedUser.name}!`, 'success');
+      syncManager.addLog(`Login efetuado por ${matchedUser.name} (${matchedUser.roleTitle})`, 'info');
       return true;
     }
-    return false;
+
+    setIsAuthenticated(true);
+    showToast('Bem-vindo ao Asphalt Pro!', 'success');
+    return true;
   };
 
   const logout = () => {
     setIsAuthenticated(false);
     showToast('Sessão encerrada com sucesso.', 'info');
+  };
+
+  const addSystemUser = (userData: Omit<SystemUser, 'id' | 'createdAt'>) => {
+    const newUser: SystemUser = {
+      ...userData,
+      id: `user-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+      createdAt: new Date().toISOString(),
+    };
+    setSystemUsers(prev => [newUser, ...prev]);
+    syncManager.enqueue('user', 'create', newUser.id, newUser);
+    showToast(`Usuário ${newUser.name} cadastrado com sucesso!`, 'success');
+  };
+
+  const updateSystemUser = (id: string, userData: Partial<SystemUser>) => {
+    setSystemUsers(prev => prev.map(u => {
+      if (u.id === id) {
+        const updated = { ...u, ...userData };
+        syncManager.enqueue('user', 'update', id, updated);
+        if (user.id === id || user.email === u.email) {
+          setUser(p => ({
+            ...p,
+            name: updated.name || p.name,
+            role: updated.roleTitle || p.role,
+            userRole: updated.role || p.userRole,
+            email: updated.email || p.email,
+            avatarUrl: updated.avatarUrl || p.avatarUrl,
+          }));
+        }
+        return updated;
+      }
+      return u;
+    }));
+    showToast('Dados do usuário atualizados.', 'success');
+  };
+
+  const toggleSystemUserStatus = (id: string) => {
+    setSystemUsers(prev => prev.map(u => {
+      if (u.id === id) {
+        const nextStatus = u.status === 'ativo' ? 'inativo' : 'ativo';
+        const updated: SystemUser = { ...u, status: nextStatus };
+        syncManager.enqueue('user', 'update', id, updated);
+        showToast(`Usuário ${u.name} agora está ${nextStatus.toUpperCase()}.`, 'info');
+        return updated;
+      }
+      return u;
+    }));
+  };
+
+  const deleteSystemUser = (id: string) => {
+    if (systemUsers.length <= 1) {
+      showToast('O sistema precisa de pelo menos 1 usuário cadastrado.', 'error');
+      return;
+    }
+    setSystemUsers(prev => prev.filter(u => u.id !== id));
+    syncManager.enqueue('user', 'delete', id, { id });
+    showToast('Usuário removido do sistema.', 'info');
   };
 
   const openNovoLancamentoWithTab = (tab: 'entrada' | 'saida') => {
@@ -272,37 +632,126 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const addTransaction = (txData: Omit<Transaction, 'id' | 'createdAt'>) => {
-    const newTx: Transaction = {
-      ...txData,
-      id: `tx-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-      createdAt: new Date().toISOString()
-    };
-    setTransactions(prev => [newTx, ...prev]);
-    syncManager.enqueue('transaction', 'create', newTx.id, newTx);
-    showToast(`Lançamento de ${txData.tipo === 'entrada' ? 'Receita' : 'Despesa'} registrado!`, 'success');
+    try {
+      if (!txData.descricao || txData.descricao.trim() === '') {
+        reportSystemError({
+          modulo: 'lancamentos',
+          acao: 'Gravar Lançamento Financeiro',
+          titulo: 'Descrição Obrigatória Ausente',
+          mensagem: 'Por favor, informe a descrição do lançamento (ex: Compra de CAP, Venda de CBUQ).',
+          codigo: 'ERR_LANC_MISSING_DESC',
+          severidade: 'medio',
+          resolucaoSugerida: 'Preencha o campo de descrição antes de salvar.',
+        });
+        return;
+      }
+
+      if (isNaN(txData.valor) || txData.valor <= 0) {
+        reportSystemError({
+          modulo: 'lancamentos',
+          acao: 'Gravar Lançamento Financeiro',
+          titulo: 'Valor Inválido no Lançamento',
+          mensagem: 'O valor da movimentação financeira deve ser um número positivo maior que R$ 0,00.',
+          codigo: 'ERR_LANC_INVALID_VALUE',
+          severidade: 'medio',
+          resolucaoSugerida: 'Informe um valor numérico válido positivo no campo Valor.',
+        });
+        return;
+      }
+
+      const newTx: Transaction = {
+        ...txData,
+        id: `tx-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+        createdAt: new Date().toISOString()
+      };
+      setTransactions(prev => [newTx, ...prev]);
+      syncManager.enqueue('transaction', 'create', newTx.id, newTx);
+      showToast(`Lançamento de ${txData.tipo === 'entrada' ? 'Receita' : 'Despesa'} registrado!`, 'success');
+    } catch (err) {
+      reportSystemError({
+        modulo: 'lancamentos',
+        acao: 'Salvar Lançamento',
+        titulo: 'Falha Inesperada ao Gravar Lançamento',
+        mensagem: 'Ocorreu um erro interno ao processar a inclusão do lançamento.',
+        codigo: 'ERR_LANC_SAVE_FAILED',
+        severidade: 'critico',
+        resolucaoSugerida: 'Verifique se os campos estão corretos e tente novamente. Se persistir, exporte o relatório de diagnóstico.',
+        errorObj: err,
+      });
+    }
   };
 
   const deleteTransaction = (id: string) => {
-    setTransactions(prev => prev.filter(t => t.id !== id));
-    syncManager.enqueue('transaction', 'delete', id, { id });
-    showToast('Lançamento removido.', 'info');
+    try {
+      setTransactions(prev => prev.filter(t => t.id !== id));
+      syncManager.enqueue('transaction', 'delete', id, { id });
+      showToast('Lançamento removido.', 'info');
+    } catch (err) {
+      reportSystemError({
+        modulo: 'lancamentos',
+        acao: 'Excluir Lançamento',
+        titulo: 'Erro ao remover lançamento',
+        mensagem: 'Não foi possível excluir o lançamento selecionado.',
+        codigo: 'ERR_LANC_DELETE_FAILED',
+        severidade: 'alto',
+        errorObj: err,
+      });
+    }
   };
 
   const addAccount = (accData: Omit<AccountItem, 'id'>) => {
-    const newAcc: AccountItem = {
-      ...accData,
-      id: `acc-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`
-    };
-    setAccounts(prev => [newAcc, ...prev]);
-    syncManager.enqueue('account', 'create', newAcc.id, newAcc);
-    showToast('Conta cadastrada com sucesso!', 'success');
+    try {
+      if (!accData.descricao || accData.descricao.trim() === '') {
+        reportSystemError({
+          modulo: 'contas',
+          acao: 'Cadastrar Conta a Pagar/Receber',
+          titulo: 'Descrição Obrigatória Ausente',
+          mensagem: 'Informe a descrição da duplicata ou conta antes de salvar.',
+          codigo: 'ERR_ACC_MISSING_DESC',
+          severidade: 'medio',
+          resolucaoSugerida: 'Digite a identificação da conta ou número da nota fiscal.',
+        });
+        return;
+      }
+
+      if (isNaN(accData.valor) || accData.valor <= 0) {
+        reportSystemError({
+          modulo: 'contas',
+          acao: 'Cadastrar Conta',
+          titulo: 'Valor de Conta Inválido',
+          mensagem: 'O valor da conta deve ser positivo.',
+          codigo: 'ERR_ACC_INVALID_VAL',
+          severidade: 'medio',
+          resolucaoSugerida: 'Informe um valor numérico válido maior que R$ 0,00.',
+        });
+        return;
+      }
+
+      const newAcc: AccountItem = {
+        ...accData,
+        id: `acc-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`
+      };
+      setAccounts(prev => [newAcc, ...prev]);
+      syncManager.enqueue('account', 'create', newAcc.id, newAcc);
+      showToast('Conta cadastrada com sucesso!', 'success');
+    } catch (err) {
+      reportSystemError({
+        modulo: 'contas',
+        acao: 'Salvar Conta',
+        titulo: 'Erro ao Salvar Conta a Pagar/Receber',
+        mensagem: 'Falha ao incluir o registro de duplicata no sistema.',
+        codigo: 'ERR_ACC_SAVE_FAILED',
+        severidade: 'critico',
+        errorObj: err,
+      });
+    }
   };
 
   const toggleAccountPaidStatus = (id: string) => {
     setAccounts(prev => prev.map(acc => {
       if (acc.id === id) {
         const isNowPaid = acc.status !== 'pago';
-        const updatedStatus = isNowPaid ? 'pago' : 'pendente';
+        const updatedStatus: AccountItem['status'] = isNowPaid ? 'pago' : 'pendente';
         const dataPagamento = isNowPaid ? new Date().toLocaleDateString('pt-BR') : undefined;
         
         // When marked as paid, also auto-add as a transaction for consistency
@@ -325,7 +774,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           syncManager.enqueue('transaction', 'create', newTx.id, newTx);
         }
 
-        const updatedAccount = {
+        const updatedAccount: AccountItem = {
           ...acc,
           status: updatedStatus,
           dataPagamento
@@ -351,45 +800,82 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const addEmployee = (empData: Omit<Employee, 'id' | 'avatarInitials'>) => {
-    const names = empData.nome.trim().split(' ');
-    const initials = names.length > 1
-      ? `${names[0][0]}${names[names.length - 1][0]}`.toUpperCase()
-      : names[0].slice(0, 2).toUpperCase();
+    try {
+      if (!empData.nome || empData.nome.trim() === '') {
+        reportSystemError({
+          modulo: 'funcionarios',
+          acao: 'Cadastrar Funcionário',
+          titulo: 'Nome do Colaborador Ausente',
+          mensagem: 'O nome completo do colaborador é obrigatório.',
+          codigo: 'ERR_EMP_MISSING_NAME',
+          severidade: 'baixo',
+          resolucaoSugerida: 'Preencha o nome do colaborador antes de salvar.',
+        });
+        return;
+      }
 
-    const newEmp: Employee = {
-      ...empData,
-      id: `emp-${Date.now()}`,
-      avatarInitials: initials
-    };
-    setEmployees(prev => [newEmp, ...prev]);
-    syncManager.enqueue('employee', 'create', newEmp.id, newEmp);
-    showToast(`Funcionário ${empData.nome} cadastrado com sucesso!`, 'success');
+      const names = empData.nome.trim().split(' ');
+      const initials = names.length > 1
+        ? `${names[0][0]}${names[names.length - 1][0]}`.toUpperCase()
+        : names[0].slice(0, 2).toUpperCase();
+
+      const newEmp: Employee = {
+        ...empData,
+        id: `emp-${Date.now()}`,
+        avatarInitials: initials
+      };
+      setEmployees(prev => [newEmp, ...prev]);
+      syncManager.enqueue('employee', 'create', newEmp.id, newEmp);
+      showToast(`Funcionário ${empData.nome} cadastrado com sucesso!`, 'success');
+    } catch (err) {
+      reportSystemError({
+        modulo: 'funcionarios',
+        acao: 'Cadastrar Funcionário',
+        titulo: 'Erro ao Salvar Colaborador',
+        mensagem: 'Ocorreu um erro interno ao cadastrar o funcionário.',
+        codigo: 'ERR_EMP_SAVE_FAILED',
+        severidade: 'alto',
+        errorObj: err,
+      });
+    }
   };
 
   const updateEmployee = (id: string, empData: Partial<Employee>) => {
-    setEmployees(prev => prev.map(e => {
-      if (e.id === id) {
-        let initials = e.avatarInitials;
-        if (empData.nome) {
-          const names = empData.nome.trim().split(' ');
-          initials = names.length > 1
-            ? `${names[0][0]}${names[names.length - 1][0]}`.toUpperCase()
-            : names[0].slice(0, 2).toUpperCase();
+    try {
+      setEmployees(prev => prev.map(e => {
+        if (e.id === id) {
+          let initials = e.avatarInitials;
+          if (empData.nome) {
+            const names = empData.nome.trim().split(' ');
+            initials = names.length > 1
+              ? `${names[0][0]}${names[names.length - 1][0]}`.toUpperCase()
+              : names[0].slice(0, 2).toUpperCase();
+          }
+          const updated = { ...e, ...empData, avatarInitials: initials };
+          syncManager.enqueue('employee', 'update', id, updated);
+          return updated;
         }
-        const updated = { ...e, ...empData, avatarInitials: initials };
-        syncManager.enqueue('employee', 'update', id, updated);
-        return updated;
-      }
-      return e;
-    }));
-    showToast('Dados do funcionário atualizados!', 'success');
+        return e;
+      }));
+      showToast('Dados do funcionário atualizados!', 'success');
+    } catch (err) {
+      reportSystemError({
+        modulo: 'funcionarios',
+        acao: 'Atualizar Funcionário',
+        titulo: 'Erro ao Atualizar Colaborador',
+        mensagem: 'Não foi possível salvar as alterações do funcionário.',
+        codigo: 'ERR_EMP_UPDATE_FAILED',
+        severidade: 'medio',
+        errorObj: err,
+      });
+    }
   };
 
   const toggleEmployeeStatus = (id: string) => {
     setEmployees(prev => prev.map(e => {
       if (e.id === id) {
-        const nextStatus = e.status === 'ativo' ? 'inativo' : 'ativo';
-        const updated = { ...e, status: nextStatus };
+        const nextStatus: 'ativo' | 'inativo' = e.status === 'ativo' ? 'inativo' : 'ativo';
+        const updated: Employee = { ...e, status: nextStatus };
         syncManager.enqueue('employee', 'update', id, updated);
         showToast(`Colaborador ${e.nome} agora está ${nextStatus.toUpperCase()}.`, 'info');
         return updated;
@@ -406,26 +892,76 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Quotes Logic
   const addQuote = (quoteData: Omit<Quote, 'id' | 'createdAt'>) => {
-    const newQuote: Quote = {
-      ...quoteData,
-      id: `orc-${Date.now()}`,
-      createdAt: new Date().toISOString()
-    };
-    setQuotes(prev => [newQuote, ...prev]);
-    syncManager.enqueue('quote', 'create', newQuote.id, newQuote);
-    showToast(`Orçamento ${newQuote.numero} gerado com sucesso!`, 'success');
+    try {
+      if (!quoteData.cliente?.nome || quoteData.cliente.nome.trim() === '') {
+        reportSystemError({
+          modulo: 'orcamentos',
+          acao: 'Emitir Orçamento CBUQ',
+          titulo: 'Nome do Cliente Ausente',
+          mensagem: 'O nome da empresa ou contratante do orçamento é obrigatório.',
+          codigo: 'ERR_ORC_MISSING_CLIENT',
+          severidade: 'medio',
+          resolucaoSugerida: 'Preencha o nome do cliente no formulário da proposta.',
+        });
+        return;
+      }
+
+      if (!quoteData.itens || quoteData.itens.length === 0) {
+        reportSystemError({
+          modulo: 'orcamentos',
+          acao: 'Emitir Orçamento CBUQ',
+          titulo: 'Orçamento sem Itens de Massa Asfáltica',
+          mensagem: 'Adicione ao menos um item de CBUQ ou serviço para gerar a proposta.',
+          codigo: 'ERR_ORC_NO_ITEMS',
+          severidade: 'medio',
+          resolucaoSugerida: 'Clique em "Adicionar Item" e defina a faixa, quantidade em toneladas e valor unitário.',
+        });
+        return;
+      }
+
+      const newQuote: Quote = {
+        ...quoteData,
+        id: `orc-${Date.now()}`,
+        createdAt: new Date().toISOString()
+      };
+      setQuotes(prev => [newQuote, ...prev]);
+      syncManager.enqueue('quote', 'create', newQuote.id, newQuote);
+      showToast(`Orçamento ${newQuote.numero} gerado com sucesso!`, 'success');
+    } catch (err) {
+      reportSystemError({
+        modulo: 'orcamentos',
+        acao: 'Salvar Orçamento',
+        titulo: 'Erro ao Gerar Orçamento Comercial',
+        mensagem: 'Não foi possível registrar o orçamento no sistema.',
+        codigo: 'ERR_ORC_SAVE_FAILED',
+        severidade: 'critico',
+        errorObj: err,
+      });
+    }
   };
 
   const updateQuote = (id: string, quoteData: Partial<Quote>) => {
-    setQuotes(prev => prev.map(q => {
-      if (q.id === id) {
-        const updated = { ...q, ...quoteData };
-        syncManager.enqueue('quote', 'update', id, updated);
-        return updated;
-      }
-      return q;
-    }));
-    showToast('Orçamento atualizado com sucesso!', 'success');
+    try {
+      setQuotes(prev => prev.map(q => {
+        if (q.id === id) {
+          const updated = { ...q, ...quoteData };
+          syncManager.enqueue('quote', 'update', id, updated);
+          return updated;
+        }
+        return q;
+      }));
+      showToast('Orçamento atualizado com sucesso!', 'success');
+    } catch (err) {
+      reportSystemError({
+        modulo: 'orcamentos',
+        acao: 'Editar Orçamento',
+        titulo: 'Erro ao Atualizar Orçamento',
+        mensagem: 'Não foi possível salvar as alterações na proposta.',
+        codigo: 'ERR_ORC_UPDATE_FAILED',
+        severidade: 'alto',
+        errorObj: err,
+      });
+    }
   };
 
   const deleteQuote = (id: string) => {
@@ -600,6 +1136,106 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     showToast('Item removido do catálogo.', 'info');
   };
 
+  // Partners Management logic
+  const addPartner = (partnerData: Omit<BusinessPartner, 'id'>) => {
+    const newPartner: BusinessPartner = {
+      ...partnerData,
+      id: `part-${Date.now()}`
+    };
+    setPartners(prev => [newPartner, ...prev]);
+    syncManager.enqueue('partner', 'create', newPartner.id, newPartner);
+    syncManager.addLog(`Novo parceiro "${newPartner.nome}" cadastrado com sucesso`, 'success');
+    showToast(`Parceiro "${newPartner.nome}" cadastrado!`, 'success');
+  };
+
+  const updatePartner = (id: string, partnerData: Partial<BusinessPartner>) => {
+    setPartners(prev => prev.map(p => p.id === id ? { ...p, ...partnerData } : p));
+    syncManager.enqueue('partner', 'update', id, partnerData);
+    showToast('Dados do parceiro atualizados com sucesso!', 'success');
+  };
+
+  const deletePartner = (id: string) => {
+    setPartners(prev => prev.filter(p => p.id !== id));
+    syncManager.enqueue('partner', 'delete', id, { id });
+    showToast('Parceiro removido do cadastro.', 'info');
+  };
+
+  const getUnifiedPartners = (filterType?: 'cliente' | 'fornecedor' | 'ambos'): BusinessPartner[] => {
+    const partnerMap = new Map<string, BusinessPartner>();
+
+    // 1. Cadastrados oficiais
+    partners.forEach(p => {
+      if (p.nome) {
+        partnerMap.set(p.nome.trim().toLowerCase(), p);
+      }
+    });
+
+    // 2. Extrair clientes de orçamentos anteriores
+    quotes.forEach((q, idx) => {
+      if (q.cliente?.nome) {
+        const key = q.cliente.nome.trim().toLowerCase();
+        if (!partnerMap.has(key)) {
+          partnerMap.set(key, {
+            id: `quote-client-${idx}-${key.replace(/\s+/g, '-')}`,
+            nome: q.cliente.nome,
+            tipo: 'cliente',
+            documento: q.cliente.documento,
+            contato: q.cliente.contato,
+            telefone: q.cliente.telefone,
+            email: q.cliente.email,
+            endereco: q.cliente.enderecoObra,
+            cidadeUf: q.cliente.cidadeUf,
+            ramoAtividade: 'Cliente de Orçamento',
+            categoriaPadrao: 'Receita de Serviços',
+            status: 'ativo'
+          });
+        }
+      }
+    });
+
+    // 3. Extrair fornecedores e clientes de contas financeiras
+    accounts.forEach((a, idx) => {
+      if (a.fornecedorCliente && a.fornecedorCliente.trim() !== 'Não especificado') {
+        const key = a.fornecedorCliente.trim().toLowerCase();
+        if (!partnerMap.has(key)) {
+          const inferredType: PartnerType = a.tipo === 'receber' ? 'cliente' : 'fornecedor';
+          partnerMap.set(key, {
+            id: `acc-party-${idx}-${key.replace(/\s+/g, '-')}`,
+            nome: a.fornecedorCliente.trim(),
+            tipo: inferredType,
+            ramoAtividade: a.tipo === 'receber' ? 'Cliente Contratante' : 'Fornecedor Operacional',
+            categoriaPadrao: a.categoria,
+            status: 'ativo'
+          });
+        }
+      }
+    });
+
+    // 4. Extrair de lançamentos do livro caixa
+    transactions.forEach((t, idx) => {
+      if (t.clienteFornecedor && t.clienteFornecedor.trim()) {
+        const key = t.clienteFornecedor.trim().toLowerCase();
+        if (!partnerMap.has(key)) {
+          const inferredType: PartnerType = t.tipo === 'entrada' ? 'cliente' : 'fornecedor';
+          partnerMap.set(key, {
+            id: `tx-party-${idx}-${key.replace(/\s+/g, '-')}`,
+            nome: t.clienteFornecedor.trim(),
+            tipo: inferredType,
+            ramoAtividade: t.tipo === 'entrada' ? 'Cliente Caixa' : 'Fornecedor / Favorecido',
+            categoriaPadrao: t.categoria,
+            status: 'ativo'
+          });
+        }
+      }
+    });
+
+    const list = Array.from(partnerMap.values());
+    if (!filterType || filterType === 'ambos') {
+      return list;
+    }
+    return list.filter(p => p.tipo === filterType || p.tipo === 'ambos');
+  };
+
   const updateLetterheadSettings = (settings: Partial<LetterheadSettings>) => {
     setLetterheadSettings(prev => ({ ...prev, ...settings }));
     showToast('Configurações de papel timbrado A4 salvas!', 'success');
@@ -617,14 +1253,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const exportFullBackup = () => {
     try {
       const backupData = {
-        version: '1.0.0',
+        version: '1.1.0',
         exportedAt: new Date().toISOString(),
         transactions,
         accounts,
         employees,
+        partners,
         quotes,
         quoteCatalog,
         letterheadSettings,
+        systemUsers,
       };
 
       const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(backupData, null, 2));
@@ -663,6 +1301,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setEmployees(data.employees);
         localStorage.setItem('asphalt_employees', JSON.stringify(data.employees));
       }
+      if (Array.isArray(data.partners)) {
+        setPartners(data.partners);
+        localStorage.setItem('asphalt_partners', JSON.stringify(data.partners));
+      }
       if (Array.isArray(data.quotes)) {
         setQuotes(data.quotes);
         localStorage.setItem('asphalt_quotes', JSON.stringify(data.quotes));
@@ -670,6 +1312,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (Array.isArray(data.quoteCatalog)) {
         setQuoteCatalog(data.quoteCatalog);
         localStorage.setItem('asphalt_quote_catalog', JSON.stringify(data.quoteCatalog));
+      }
+      if (Array.isArray(data.systemUsers)) {
+        setSystemUsers(data.systemUsers);
+        localStorage.setItem('asphalt_system_users', JSON.stringify(data.systemUsers));
       }
       if (data.letterheadSettings) {
         setLetterheadSettings(data.letterheadSettings);
@@ -690,10 +1336,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setTransactions(INITIAL_TRANSACTIONS);
     setAccounts(INITIAL_ACCOUNTS);
     setEmployees(INITIAL_EMPLOYEES);
+    setPartners(INITIAL_PARTNERS);
     setQuotes(INITIAL_QUOTES);
     setQuoteCatalog(INITIAL_QUOTE_CATALOG);
     setLetterheadSettings(INITIAL_LETTERHEAD_SETTINGS);
     setNotifications(INITIAL_NOTIFICATIONS);
+    setSystemUsers(INITIAL_SYSTEM_USERS);
+    setUser(INITIAL_USER);
     localStorage.clear();
     showToast('Dados do sistema restaurados para o padrão de fábrica.', 'info');
   };
@@ -719,6 +1368,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       value={{
         isAuthenticated,
         user,
+        userRole,
+        permissions,
+        systemUsers,
+        switchUser,
+        addSystemUser,
+        updateSystemUser,
+        toggleSystemUserStatus,
+        deleteSystemUser,
         login,
         logout,
         currentView,
@@ -735,6 +1392,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateEmployee,
         toggleEmployeeStatus,
         deleteEmployee,
+        partners,
+        addPartner,
+        updatePartner,
+        deletePartner,
+        getUnifiedPartners,
         categories,
         bankAccounts,
         notifications,
@@ -781,6 +1443,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setGlobalSearch,
         toastMessage,
         showToast,
+        isDiagnosticsOpen,
+        setIsDiagnosticsOpen,
+        selectedDiagnosticErrorId,
+        setSelectedDiagnosticErrorId,
+        openDiagnosticsWithError,
+        reportSystemError,
         saldoAtual,
         entradasDoMes,
         saidasDoMes,

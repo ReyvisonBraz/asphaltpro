@@ -1,9 +1,11 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useSyncExternalStore } from 'react';
 import { useApp } from '../../context/AppContext';
 import { ViewMode } from '../../types';
 import { SyncStatusBadge } from '../sync/SyncStatusBadge';
 import { SyncDetailsModal } from '../sync/SyncDetailsModal';
 import { PWAInstallButton } from '../common/PWAInstallButton';
+import { errorDiagnosticsService } from '../../services/errorDiagnosticsService';
+import { ShieldAlert, ShieldCheck } from 'lucide-react';
 
 export const TopHeader: React.FC = () => {
   const {
@@ -12,11 +14,20 @@ export const TopHeader: React.FC = () => {
     setGlobalSearch,
     notifications,
     user,
+    systemUsers,
+    switchUser,
     logout,
     setIsHelpOpen,
+    setIsDiagnosticsOpen,
     setCurrentView,
     setIsMobileSidebarOpen
   } = useApp();
+
+  const errors = useSyncExternalStore(
+    (cb) => errorDiagnosticsService.subscribe(cb),
+    () => errorDiagnosticsService.getErrors(),
+    () => []
+  );
 
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
@@ -25,6 +36,10 @@ export const TopHeader: React.FC = () => {
   const userRef = useRef<HTMLDivElement>(null);
 
   const unreadCount = notifications.filter(n => !n.lida).length;
+  const recentErrorCount = (errors || []).filter(e => {
+    const errorTime = new Date(e.timestamp).getTime();
+    return Date.now() - errorTime < 1000 * 60 * 30; // últimos 30 min
+  }).length;
 
   const viewTitles: Record<ViewMode, string> = {
     dashboard: 'Dashboard Resumo',
@@ -148,6 +163,28 @@ export const TopHeader: React.FC = () => {
               )}
             </div>
 
+            {/* Error Diagnostics button */}
+            <button
+              onClick={() => setIsDiagnosticsOpen(true)}
+              className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full transition-all flex items-center justify-center relative ${
+                recentErrorCount > 0
+                  ? 'bg-rose-50 text-rose-600 hover:bg-rose-100 ring-2 ring-rose-300'
+                  : 'hover:bg-[#F1EDEC] hover:text-[#835400] text-[#46464A]'
+              }`}
+              title="Diagnóstico do Sistema & Resolução de Erros"
+            >
+              {recentErrorCount > 0 ? (
+                <ShieldAlert className="w-5 h-5 text-[#E03131] animate-pulse" />
+              ) : (
+                <ShieldCheck className="w-5 h-5 text-emerald-600" />
+              )}
+              {recentErrorCount > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 bg-[#E03131] text-white text-[9px] font-bold rounded-full flex items-center justify-center">
+                  {recentErrorCount}
+                </span>
+              )}
+            </button>
+
             {/* Help button */}
             <button
               onClick={() => setIsHelpOpen(true)}
@@ -164,9 +201,14 @@ export const TopHeader: React.FC = () => {
               onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
               className="flex items-center gap-2 pl-2 sm:pl-3 border-l border-[#C7C6CA] hover:opacity-90 transition-opacity"
             >
-              <span className="text-xs font-semibold hidden sm:block text-[#1C1B1B]">
-                {user.role}
-              </span>
+              <div className="text-right hidden sm:block">
+                <span className="text-xs font-bold text-[#1C1B1B] block truncate max-w-[120px]">
+                  {user.name.split(' ')[0]}
+                </span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[#835400] block">
+                  {user.role}
+                </span>
+              </div>
               <img
                 src={user.avatarUrl}
                 alt="Manager Avatar"
@@ -176,17 +218,59 @@ export const TopHeader: React.FC = () => {
 
             {/* User Menu Dropdown */}
             {isUserMenuOpen && (
-              <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg border border-[#DEE2E6] shadow-xl py-2 z-50">
-                <div className="px-4 py-2 border-b border-gray-100">
-                  <p className="text-sm font-bold text-[#010102]">{user.name}</p>
-                  <p className="text-xs text-gray-500 truncate">{user.email}</p>
+              <div className="absolute right-0 mt-2 w-72 bg-white rounded-2xl border border-[#DEE2E6] shadow-xl py-2 z-50 animate-in fade-in slide-in-from-top-2">
+                <div className="px-4 py-2.5 border-b border-gray-100 flex items-center gap-3">
+                  <img
+                    src={user.avatarUrl}
+                    alt={user.name}
+                    className="w-9 h-9 rounded-full object-cover border border-gray-300 shrink-0"
+                  />
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-[#010102] truncate">{user.name}</p>
+                    <p className="text-[11px] text-gray-500 truncate">{user.email}</p>
+                    <span className="inline-block mt-0.5 px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-amber-100 text-amber-900 border border-amber-200">
+                      Perfil: {user.role}
+                    </span>
+                  </div>
                 </div>
+
+                {/* Quick Switch User (Demo/Simulation) */}
+                <div className="px-3 py-2 border-b border-gray-100 bg-gray-50/50">
+                  <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block px-1 mb-1">
+                    Alternar Perfil Rápido
+                  </span>
+                  <div className="space-y-1 max-h-36 overflow-y-auto">
+                    {systemUsers.map((su) => (
+                      <button
+                        key={su.id}
+                        onClick={() => {
+                          switchUser(su.id);
+                          setIsUserMenuOpen(false);
+                        }}
+                        className={`w-full flex items-center justify-between px-2 py-1.5 rounded-lg text-left text-xs transition-colors ${
+                          su.id === user.id
+                            ? 'bg-amber-100 font-bold text-amber-950'
+                            : 'hover:bg-gray-100 text-gray-700'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 truncate">
+                          <img src={su.avatarUrl} alt={su.name} className="w-5 h-5 rounded-full object-cover" />
+                          <span className="truncate">{su.name}</span>
+                        </div>
+                        <span className="text-[9px] uppercase font-bold text-gray-500 shrink-0">
+                          {su.role}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 <button
                   onClick={() => {
                     setIsSyncModalOpen(true);
                     setIsUserMenuOpen(false);
                   }}
-                  className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                  className="w-full text-left px-4 py-2 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2"
                 >
                   <span className="material-symbols-outlined text-[18px]">sync_saved_locally</span>
                   Status de Sincronização
@@ -196,17 +280,17 @@ export const TopHeader: React.FC = () => {
                     setCurrentView('configuracoes');
                     setIsUserMenuOpen(false);
                   }}
-                  className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                  className="w-full text-left px-4 py-2 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2"
                 >
                   <span className="material-symbols-outlined text-[18px]">settings</span>
-                  Configurações da Conta
+                  Configurações & Usuários (RBAC)
                 </button>
                 <button
                   onClick={() => {
                     setIsUserMenuOpen(false);
                     logout();
                   }}
-                  className="w-full text-left px-4 py-2 text-sm text-[#E03131] hover:bg-red-50 flex items-center gap-2 border-t border-gray-100"
+                  className="w-full text-left px-4 py-2 text-xs text-[#E03131] hover:bg-red-50 flex items-center gap-2 border-t border-gray-100"
                 >
                   <span className="material-symbols-outlined text-[18px]">logout</span>
                   Sair do Sistema

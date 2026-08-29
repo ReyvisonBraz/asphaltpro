@@ -20,6 +20,7 @@ export const LancamentosView: React.FC = () => {
     employees,
     globalSearch,
     showToast,
+    permissions,
   } = useApp();
 
   // Filters
@@ -172,26 +173,26 @@ export const LancamentosView: React.FC = () => {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <StatCard
           title="Entradas Filtradas"
-          value={formatCurrency(totalEntradasFiltrado)}
+          value={permissions.canViewBalances ? formatCurrency(totalEntradasFiltrado) : '••••••••'}
           icon="arrow_upward"
           variant="success"
-          subtitle={`${filteredTransactions.filter((t) => t.tipo === 'entrada').length} lançamentos`}
+          subtitle={permissions.canViewBalances ? `${filteredTransactions.filter((t) => t.tipo === 'entrada').length} lançamentos` : 'Sigiloso'}
         />
 
         <StatCard
           title="Saídas Filtradas"
-          value={formatCurrency(totalSaidasFiltrado)}
+          value={permissions.canViewBalances ? formatCurrency(totalSaidasFiltrado) : '••••••••'}
           icon="arrow_downward"
           variant="danger"
-          subtitle={`${filteredTransactions.filter((t) => t.tipo === 'saida').length} lançamentos`}
+          subtitle={permissions.canViewBalances ? `${filteredTransactions.filter((t) => t.tipo === 'saida').length} lançamentos` : 'Sigiloso'}
         />
 
         <StatCard
           title="Resultado Líquido"
-          value={formatCurrency(saldoFiltrado)}
+          value={permissions.canViewBalances ? formatCurrency(saldoFiltrado) : '••••••••'}
           icon="account_balance_wallet"
           variant={saldoFiltrado >= 0 ? 'primary' : 'danger'}
-          subtitle={saldoFiltrado >= 0 ? 'Superávit no período' : 'Déficit no período'}
+          subtitle={permissions.canViewBalances ? (saldoFiltrado >= 0 ? 'Superávit no período' : 'Déficit no período') : 'Acesso Restrito'}
         />
       </div>
 

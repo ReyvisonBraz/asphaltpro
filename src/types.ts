@@ -6,9 +6,12 @@ export type PaymentMethod =
   | 'Boleto Bancário'
   | 'Transferência'
   | 'Transferência Bancária (PIX)'
+  | 'PIX'
+  | 'Cartão de Crédito'
   | 'Cartão Corporativo'
   | 'Dinheiro'
-  | 'Cheque';
+  | 'Cheque'
+  | string;
 
 export type AccountStatus = 'atrasado' | 'pendente' | 'pago';
 
@@ -44,6 +47,25 @@ export interface QuoteClient {
   email?: string;
   enderecoObra?: string;
   cidadeUf?: string;
+}
+
+export type PartnerType = 'cliente' | 'fornecedor' | 'ambos';
+
+export interface BusinessPartner {
+  id: string;
+  nome: string;
+  nomeFantasia?: string;
+  tipo: PartnerType;
+  documento?: string; // CNPJ ou CPF
+  inscricaoEstadual?: string;
+  contato?: string;
+  telefone?: string;
+  email?: string;
+  cidadeUf?: string;
+  endereco?: string;
+  ramoAtividade?: string; // Ex: Insumos (CAP/Brita), Pavimentação, Órgão Público
+  categoriaPadrao?: string; // Categoria contábil sugerida
+  status?: 'ativo' | 'inativo';
 }
 
 export interface Quote {
@@ -178,9 +200,42 @@ export interface BankAccount {
   agenciaConta: string;
 }
 
+export type UserRole = 'admin' | 'financeiro' | 'comercial' | 'operador';
+
+export interface RolePermissions {
+  canViewDashboard: boolean;
+  canViewBalances: boolean; // Visualização de saldos reais e faturamento total
+  canManageTransactions: boolean; // Lançamentos de despesas e receitas
+  canViewTransactions?: boolean; // Compatibilidade de visualização de lançamentos
+  canManageAccounts: boolean; // Contas a Pagar e Receber
+  canManageQuotes: boolean; // Emissão de Orçamentos e Propostas
+  canManageCadastros: boolean; // Gestão de Funcionários e Motoristas
+  canManageEmployees?: boolean; // Compatibilidade de gestão de colaboradores
+  canViewReports: boolean; // DRE, Relatórios Gerenciais e Exportações
+  canManageSettings: boolean; // Configurações da Usina, Papel Timbrado e Backup
+  canManageUsers: boolean; // Gestão de Usuários, Senhas e Perfis
+}
+
+export interface SystemUser {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  roleTitle: string; // Ex: Diretor de Operações, Gerente Financeiro, Engenheiro Comercial, Operador de Balança
+  department: string; // Ex: Diretoria, Financeiro, Comercial, Usina
+  avatarUrl: string;
+  status: 'ativo' | 'inativo';
+  createdAt: string;
+  lastLogin?: string;
+  phone?: string;
+}
+
 export interface UserProfile {
+  id?: string;
   name: string;
   role: string;
+  roleTitle?: string;
+  userRole?: UserRole;
   email: string;
   avatarUrl: string;
   status: 'Active' | 'Away' | 'Offline';
@@ -201,7 +256,7 @@ export type NetworkState = 'online' | 'offline' | 'syncing' | 'error';
 export interface SyncQueueItem {
   id: string; // unique operation id
   entityId: string; // target record id
-  entityType: 'transaction' | 'account' | 'quote' | 'employee' | 'category' | 'settings';
+  entityType: 'transaction' | 'account' | 'quote' | 'employee' | 'category' | 'settings' | 'user' | 'partner';
   action: 'create' | 'update' | 'delete';
   payload: any;
   timestamp: string; // ISO string
@@ -216,5 +271,49 @@ export interface SyncAuditLog {
   description: string;
   type: 'info' | 'success' | 'warning' | 'error';
   itemCount?: number;
+}
+
+// Error Diagnostics & Failure Mapping
+export type ErrorSeverity = 'critico' | 'alto' | 'medio' | 'baixo';
+
+export type ErrorModule = 
+  | 'lancamentos'
+  | 'contas'
+  | 'orcamentos'
+  | 'cadastros'
+  | 'funcionarios'
+  | 'usuarios'
+  | 'configuracoes'
+  | 'sincronizacao'
+  | 'sistema_storage'
+  | 'renderizacao_ui'
+  | 'geral';
+
+export interface AppErrorRecord {
+  id: string;
+  codigo: string;
+  modulo: ErrorModule;
+  acao: string;
+  titulo: string;
+  mensagem: string;
+  detalhesTecnicos?: string;
+  resolucaoSugerida: string;
+  acaoRapida?: 'tentar_novamente' | 'exportar_backup' | 'limpar_cache' | 'contatar_suporte' | 'abrir_configuracoes' | 'ver_detalhes';
+  payloadResumo?: Record<string, any>;
+  timestamp: string;
+  resolvido: boolean;
+  stack?: string;
+  severidade: ErrorSeverity;
+}
+
+export interface SystemHealthMetrics {
+  status: 'excelente' | 'atencao' | 'critico';
+  totalErros24h: number;
+  errosNaoResolvidos: number;
+  storageUsadoKb: number;
+  storageMaxKb: number;
+  storagePercentual: number;
+  ultimaFalha?: string;
+  versaoApp: string;
 }
 

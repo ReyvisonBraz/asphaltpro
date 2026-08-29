@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { TransactionType, PaymentMethod } from '../../types';
 import { getTodayDateInputValue, formatDateToBR } from '../../utils/formatters';
-import { Modal, Button, Input, Select } from '../common';
+import { Modal, Button, Input, Select, PartnerAutocomplete } from '../common';
 
 export const NovoLancamentoModal: React.FC = () => {
   const {
@@ -219,16 +219,27 @@ export const NovoLancamentoModal: React.FC = () => {
             ))}
           </Select>
 
-          <Input
+          <PartnerAutocomplete
             label={tipo === 'entrada' ? 'Cliente / Contratante' : 'Favorecido / Fornecedor'}
             placeholder={
               tipo === 'entrada'
-                ? 'Ex: Secretaria de Obras, Construtora...'
-                : 'Ex: Petrobras, Pedreira...'
+                ? 'Pesquise cliente por nome, CNPJ, obra...'
+                : 'Pesquise fornecedor por nome, CNPJ, insumo...'
             }
             value={clienteFornecedor}
-            onChange={(e) => setClienteFornecedor(e.target.value)}
+            onChange={setClienteFornecedor}
+            onSelectPartner={(partner) => {
+              setClienteFornecedor(partner.nome);
+              if (partner.categoriaPadrao) {
+                const matches = availableCategories.some((c) => c.nome === partner.categoriaPadrao);
+                if (matches) {
+                  setCategoria(partner.categoriaPadrao);
+                }
+              }
+            }}
+            partnerType={tipo === 'entrada' ? 'cliente' : 'fornecedor'}
             leftIcon="business"
+            helperText="Pesquise no histórico e cadastros ou digite um novo parceiro"
           />
 
           <Select

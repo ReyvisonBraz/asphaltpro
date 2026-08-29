@@ -1,22 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React, { useSyncExternalStore } from 'react';
 import { syncManager } from '../../services/syncManager';
-import { NetworkState } from '../../types';
 
 interface SyncStatusBadgeProps {
   onClick?: () => void;
 }
 
 export const SyncStatusBadge: React.FC<SyncStatusBadgeProps> = ({ onClick }) => {
-  const [networkState, setNetworkState] = useState<NetworkState>(syncManager.getNetworkState());
-  const [pendingCount, setPendingCount] = useState<number>(syncManager.getPendingCount());
-
-  useEffect(() => {
-    const unsubscribe = syncManager.subscribe((state) => {
-      setNetworkState(state.networkState);
-      setPendingCount(state.pendingCount);
-    });
-    return unsubscribe;
-  }, []);
+  const networkState = useSyncExternalStore(
+    (cb) => syncManager.subscribe(cb),
+    () => syncManager.getNetworkState()
+  );
+  const pendingCount = useSyncExternalStore(
+    (cb) => syncManager.subscribe(cb),
+    () => syncManager.getPendingCount()
+  );
 
   const getBadgeConfig = () => {
     switch (networkState) {
@@ -73,3 +70,4 @@ export const SyncStatusBadge: React.FC<SyncStatusBadgeProps> = ({ onClick }) => 
     </button>
   );
 };
+

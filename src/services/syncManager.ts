@@ -4,24 +4,30 @@ const SYNC_QUEUE_KEY = 'asphaltpro_sync_queue';
 const SYNC_LOGS_KEY = 'asphaltpro_sync_logs';
 const SIMULATED_OFFLINE_KEY = 'asphaltpro_simulated_offline';
 
-type SyncListener = (state: {
-  networkState: NetworkState;
-  pendingCount: number;
-  lastSyncTime: string | null;
-  queue: SyncQueueItem[];
-  logs: SyncAuditLog[];
-}) => void;
+type SyncListener = () => void;
 
 class SyncManager {
   private queue: SyncQueueItem[] = [];
   private logs: SyncAuditLog[] = [];
   private listeners: Set<SyncListener> = new Set();
-  private networkState: NetworkState = navigator.onLine ? 'online' : 'offline';
+  private networkState: NetworkState = typeof navigator !== 'undefined' && navigator.onLine ? 'online' : 'offline';
   private lastSyncTime: string | null = null;
   private isProcessing = false;
   private simulatedOffline = false;
 
   constructor() {
+    this.subscribe = this.subscribe.bind(this);
+    this.getNetworkState = this.getNetworkState.bind(this);
+    this.getQueue = this.getQueue.bind(this);
+    this.getLogs = this.getLogs.bind(this);
+    this.getPendingCount = this.getPendingCount.bind(this);
+    this.getLastSyncTime = this.getLastSyncTime.bind(this);
+    this.isOnline = this.isOnline.bind(this);
+    this.isSimulatingOffline = this.isSimulatingOffline.bind(this);
+    this.toggleSimulatedOffline = this.toggleSimulatedOffline.bind(this);
+    this.enqueue = this.enqueue.bind(this);
+    this.processQueue = this.processQueue.bind(this);
+    this.clearQueue = this.clearQueue.bind(this);
     this.loadFromStorage();
     this.initNetworkListeners();
     // Try initial sync if queue has items and we are online
@@ -41,7 +47,18 @@ class SyncManager {
       if (savedLogs) {
         this.logs = JSON.parse(savedLogs);
       } else {
-        this.addLog('Sistema de Sincronização Inicializado', 'info');
+        const initialLog: SyncAuditLog = {
+          id: 'log_init_' + Date.now(),
+          timestamp: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+          description: 'Sistema de Sincronização Inicializado',
+          type: 'info',
+        };
+        this.logs = [initialLog];
+        try {
+          localStorage.setItem(SYNC_LOGS_KEY, JSON.stringify(this.logs));
+        } catch {
+          // ignore
+        }
       }
 
       const sim = localStorage.getItem(SIMULATED_OFFLINE_KEY);
@@ -66,6 +83,8 @@ class SyncManager {
   }
 
   private initNetworkListeners() {
+    if (typeof window === 'undefined') return;
+
     window.addEventListener('online', () => {
       if (!this.simulatedOffline) {
         this.networkState = 'online';
@@ -84,7 +103,7 @@ class SyncManager {
 
   public isOnline(): boolean {
     if (this.simulatedOffline) return false;
-    return navigator.onLine;
+    return typeof navigator !== 'undefined' ? navigator.onLine : true;
   }
 
   public getNetworkState(): NetworkState {
@@ -96,11 +115,11 @@ class SyncManager {
   }
 
   public getQueue(): SyncQueueItem[] {
-    return [...this.queue];
+    return this.queue;
   }
 
   public getLogs(): SyncAuditLog[] {
-    return [...this.logs];
+    return this.logs;
   }
 
   public getLastSyncTime(): string | null {
@@ -117,7 +136,7 @@ class SyncManager {
       this.networkState = 'offline';
       this.addLog('Simulação Offline ativada manualmente para testes', 'warning');
     } else {
-      this.networkState = navigator.onLine ? 'online' : 'offline';
+      this.networkState = (typeof navigator !== 'undefined' && navigator.onLine) ? 'online' : 'offline';
       this.addLog('Simulação Offline desativada - Conexão restaurada', 'info');
       if (this.networkState === 'online') {
         this.processQueue();
@@ -129,27 +148,22 @@ class SyncManager {
 
   public subscribe(listener: SyncListener): () => void {
     this.listeners.add(listener);
-    listener({
-      networkState: this.networkState,
-      pendingCount: this.getPendingCount(),
-      lastSyncTime: this.lastSyncTime,
-      queue: this.queue,
-      logs: this.logs,
-    });
     return () => {
       this.listeners.delete(listener);
     };
   }
 
   private notify() {
-    const state = {
-      networkState: this.networkState,
-      pendingCount: this.getPendingCount(),
-      lastSyncTime: this.lastSyncTime,
-      queue: this.queue,
-      logs: this.logs,
-    };
-    this.listeners.forEach((l) => l(state));
+    // Notify in microtask to avoid any setState-in-render during React tree reconciliations
+    queueMicrotask(() => {
+      this.listeners.forEach((listener) => {
+        try {
+          listener();
+        } catch (e) {
+          console.error(e);
+        }
+      });
+    });
   }
 
   public addLog(description: string, type: 'info' | 'success' | 'warning' | 'error', itemCount?: number) {
@@ -160,10 +174,7 @@ class SyncManager {
       type,
       itemCount,
     };
-    this.logs.unshift(newLog);
-    if (this.logs.length > 50) {
-      this.logs = this.logs.slice(0, 50);
-    }
+    this.logs = [newLog, ...this.logs].slice(0, 50);
     this.saveToStorage();
   }
 
@@ -182,12 +193,16 @@ class SyncManager {
     );
 
     if (existingIndex >= 0 && action === 'update') {
-      // Merge updates
-      this.queue[existingIndex].payload = {
-        ...this.queue[existingIndex].payload,
-        ...payload,
+      const updatedQueue = [...this.queue];
+      updatedQueue[existingIndex] = {
+        ...updatedQueue[existingIndex],
+        payload: {
+          ...updatedQueue[existingIndex].payload,
+          ...payload,
+        },
+        timestamp: new Date().toISOString(),
       };
-      this.queue[existingIndex].timestamp = new Date().toISOString();
+      this.queue = updatedQueue;
     } else {
       const item: SyncQueueItem = {
         id: 'sync_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6),
@@ -199,7 +214,7 @@ class SyncManager {
         retryCount: 0,
         status: 'pending',
       };
-      this.queue.push(item);
+      this.queue = [...this.queue, item];
     }
 
     this.saveToStorage();
@@ -242,7 +257,6 @@ class SyncManager {
       await new Promise((resolve) => setTimeout(resolve, 800));
 
       // Process items (idempotent upsert simulation)
-      // In production with Supabase/Firebase, this sends batch upserts
       this.queue = [];
       this.lastSyncTime = new Date().toLocaleTimeString('pt-BR', {
         hour: '2-digit',
@@ -270,3 +284,4 @@ class SyncManager {
 }
 
 export const syncManager = new SyncManager();
+

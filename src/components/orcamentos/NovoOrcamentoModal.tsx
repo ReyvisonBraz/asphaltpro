@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
-import { Quote, QuoteItem, QuoteStatus, QuoteCatalogItem } from '../../types';
+import { Quote, QuoteItem, QuoteStatus, QuoteCatalogItem, BusinessPartner } from '../../types';
 import { CatalogoItensDrawer } from './CatalogoItensDrawer';
+import { PartnerAutocomplete } from '../common';
 
 interface NovoOrcamentoModalProps {
   isOpen: boolean;
@@ -229,6 +230,17 @@ export const NovoOrcamentoModal: React.FC<NovoOrcamentoModalProps> = ({
     });
   };
 
+  const handleSelectPartner = (partner: BusinessPartner) => {
+    setClienteNome(partner.nome);
+    if (partner.documento) setClienteDocumento(partner.documento);
+    if (partner.contato) setClienteContato(partner.contato);
+    if (partner.telefone) setClienteTelefone(partner.telefone);
+    if (partner.email) setClienteEmail(partner.email);
+    if (partner.endereco) setClienteEnderecoObra(partner.endereco);
+    if (partner.cidadeUf) setClienteCidadeUf(partner.cidadeUf);
+    showToast(`Dados de ${partner.nome} carregados automaticamente.`, 'info');
+  };
+
   const handleSelectExistingClient = (clientName: string) => {
     setClienteNome(clientName);
     const existing = quotes.find((q) => q.cliente.nome === clientName);
@@ -239,6 +251,7 @@ export const NovoOrcamentoModal: React.FC<NovoOrcamentoModalProps> = ({
       setClienteEmail(existing.cliente.email || '');
       setClienteEnderecoObra(existing.cliente.enderecoObra || '');
       setClienteCidadeUf(existing.cliente.cidadeUf || '');
+      showToast(`Dados de ${clientName} carregados.`, 'info');
     }
   };
 
@@ -458,16 +471,16 @@ export const NovoOrcamentoModal: React.FC<NovoOrcamentoModalProps> = ({
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="sm:col-span-2">
-                  <label className="block text-[11px] font-semibold text-[#1C1B1B] uppercase mb-1">
-                    Cliente / Razão Social *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Ex: Construtora Horizonte Engenharia Ltda"
+                  <PartnerAutocomplete
+                    label="Cliente / Razão Social"
+                    placeholder="Pesquise por nome, razão social, CNPJ ou cidade..."
                     value={clienteNome}
-                    onChange={(e) => setClienteNome(e.target.value)}
-                    className="w-full p-2 rounded-lg border border-gray-300 text-xs bg-white text-[#010102] outline-none font-semibold"
+                    onChange={setClienteNome}
+                    onSelectPartner={handleSelectPartner}
+                    partnerType="cliente"
+                    required
+                    leftIcon="business"
+                    helperText="Digite para pesquisar no histórico e cadastro da usina ou digite um novo cliente"
                   />
                 </div>
 

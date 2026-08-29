@@ -1,6 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useSyncExternalStore } from 'react';
 import { syncManager } from '../../services/syncManager';
-import { NetworkState, SyncQueueItem, SyncAuditLog } from '../../types';
 import { Modal, Button } from '../common';
 
 interface SyncDetailsModalProps {
@@ -9,25 +8,31 @@ interface SyncDetailsModalProps {
 }
 
 export const SyncDetailsModal: React.FC<SyncDetailsModalProps> = ({ isOpen, onClose }) => {
-  const [networkState, setNetworkState] = useState<NetworkState>(syncManager.getNetworkState());
-  const [pendingCount, setPendingCount] = useState<number>(syncManager.getPendingCount());
-  const [lastSyncTime, setLastSyncTime] = useState<string | null>(syncManager.getLastSyncTime());
-  const [queue, setQueue] = useState<SyncQueueItem[]>(syncManager.getQueue());
-  const [logs, setLogs] = useState<SyncAuditLog[]>(syncManager.getLogs());
-  const [isSimulating, setIsSimulating] = useState<boolean>(syncManager.isSimulatingOffline());
+  const networkState = useSyncExternalStore(
+    (cb) => syncManager.subscribe(cb),
+    () => syncManager.getNetworkState()
+  );
+  const pendingCount = useSyncExternalStore(
+    (cb) => syncManager.subscribe(cb),
+    () => syncManager.getPendingCount()
+  );
+  const lastSyncTime = useSyncExternalStore(
+    (cb) => syncManager.subscribe(cb),
+    () => syncManager.getLastSyncTime()
+  );
+  const queue = useSyncExternalStore(
+    (cb) => syncManager.subscribe(cb),
+    () => syncManager.getQueue()
+  );
+  const logs = useSyncExternalStore(
+    (cb) => syncManager.subscribe(cb),
+    () => syncManager.getLogs()
+  );
+  const isSimulating = useSyncExternalStore(
+    (cb) => syncManager.subscribe(cb),
+    () => syncManager.isSimulatingOffline()
+  );
   const [isSyncing, setIsSyncing] = useState(false);
-
-  useEffect(() => {
-    const unsubscribe = syncManager.subscribe((state) => {
-      setNetworkState(state.networkState);
-      setPendingCount(state.pendingCount);
-      setLastSyncTime(state.lastSyncTime);
-      setQueue(state.queue);
-      setLogs(state.logs);
-      setIsSimulating(syncManager.isSimulatingOffline());
-    });
-    return unsubscribe;
-  }, []);
 
   if (!isOpen) return null;
 
@@ -38,9 +43,9 @@ export const SyncDetailsModal: React.FC<SyncDetailsModalProps> = ({ isOpen, onCl
   };
 
   const handleToggleSimulation = () => {
-    const newState = syncManager.toggleSimulatedOffline();
-    setIsSimulating(newState);
+    syncManager.toggleSimulatedOffline();
   };
+
 
   return (
     <Modal
@@ -83,7 +88,7 @@ export const SyncDetailsModal: React.FC<SyncDetailsModalProps> = ({ isOpen, onCl
               variant="primary"
               size="sm"
               icon="sync"
-              loading={isSyncing || networkState === 'syncing'}
+              isLoading={isSyncing || networkState === 'syncing'}
               disabled={networkState === 'offline' && isSimulating}
               onClick={handleForceSync}
             >
