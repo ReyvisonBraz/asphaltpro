@@ -269,36 +269,36 @@ export const OrcamentosView: React.FC = () => {
           </div>
         ) : (
           <>
-            {/* Desktop / Tablet View: Fluid table without horizontal scroll */}
-            <div className="hidden lg:block w-full">
-              <table className="w-full text-left text-xs border-collapse table-fixed">
+            {/* Desktop / Tablet View: Fluid table without text/element overlapping */}
+            <div className="hidden lg:block w-full overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse min-w-[1020px]">
                 <thead>
                   <tr className="bg-gray-50/80 border-b border-[#DEE2E6] text-gray-500 uppercase text-[10px] tracking-wider font-semibold">
-                    <th className="py-3 px-3 w-28">Orçamento</th>
-                    <th className="py-3 px-3">Cliente & Obra</th>
+                    <th className="py-3 px-3 w-32 whitespace-nowrap">Orçamento</th>
+                    <th className="py-3 px-3 min-w-[180px]">Cliente & Obra</th>
                     <th className="py-3 px-3 w-48">Itens / Composição</th>
-                    <th className="py-3 px-3 w-32">Emissão / Validade</th>
-                    <th className="py-3 px-3 w-32 text-right">Valor Total</th>
-                    <th className="py-3 px-2 w-28 text-center">Status</th>
-                    <th className="py-3 px-3 w-52 text-right">Ações</th>
+                    <th className="py-3 px-3 w-32 whitespace-nowrap">Emissão / Validade</th>
+                    <th className="py-3 px-3 w-36 text-right whitespace-nowrap">Valor Total</th>
+                    <th className="py-3 px-3 w-36 text-center whitespace-nowrap">Status</th>
+                    <th className="py-3 px-3 w-56 text-right whitespace-nowrap">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {filteredQuotes.map((quote) => (
                     <tr key={quote.id} className="hover:bg-gray-50/60 transition-colors group">
                       {/* Number */}
-                      <td className="py-3 px-3">
+                      <td className="py-3 px-3 whitespace-nowrap">
                         <div className="font-mono font-bold text-xs text-[#010102] truncate">{quote.numero}</div>
                         <span className="text-[10px] text-gray-400 block truncate">{quote.responsavelNome}</span>
                       </td>
 
                       {/* Client & Work */}
                       <td className="py-3 px-3 min-w-0">
-                        <div className="font-bold text-xs text-[#010102] truncate">{quote.cliente.nome}</div>
+                        <div className="font-bold text-xs text-[#010102] truncate" title={quote.cliente.nome}>{quote.cliente.nome}</div>
                         {quote.cliente.enderecoObra ? (
-                          <div className="text-[11px] text-gray-500 truncate flex items-center gap-1">
-                            <span className="material-symbols-outlined text-[12px] text-gray-400">location_on</span>
-                            {quote.cliente.enderecoObra}
+                          <div className="text-[11px] text-gray-500 truncate flex items-center gap-1 mt-0.5" title={quote.cliente.enderecoObra}>
+                            <span className="material-symbols-outlined text-[12px] text-gray-400 shrink-0">location_on</span>
+                            <span className="truncate">{quote.cliente.enderecoObra}</span>
                           </div>
                         ) : (
                           <div className="text-[10px] text-gray-400">Obra não informada</div>
@@ -317,7 +317,7 @@ export const OrcamentosView: React.FC = () => {
 
                       {/* Dates */}
                       <td className="py-3 px-3 whitespace-nowrap">
-                        <div className="text-gray-800 text-xs">{quote.dataEmissao}</div>
+                        <div className="text-gray-800 text-xs font-mono">{quote.dataEmissao}</div>
                         <div className="text-[10px] text-gray-400">
                           Até <strong>{quote.dataValidade}</strong> ({quote.diasValidade}d)
                         </div>
@@ -325,29 +325,60 @@ export const OrcamentosView: React.FC = () => {
 
                       {/* Total */}
                       <td className="py-3 px-3 text-right whitespace-nowrap">
-                        <div className="font-mono font-black text-sm text-[#010102]">
+                        <div className="font-mono font-black text-sm text-[#010102] tabular-nums">
                           R$ {quote.valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                         </div>
                         {quote.desconto > 0 && (
-                          <div className="text-[10px] text-green-700 font-medium">
+                          <div className="text-[10px] text-green-700 font-medium font-mono">
                             Desc. R$ {quote.desconto.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                           </div>
                         )}
                       </td>
 
-                      {/* Status */}
-                      <td className="py-3 px-2 text-center whitespace-nowrap">
-                        {getStatusBadge(quote.status)}
-                        {quote.detalhesConversao && (
-                          <div className="text-[9px] text-[#1971C2] mt-0.5 truncate max-w-[120px] mx-auto" title={quote.detalhesConversao}>
-                            {quote.detalhesConversao}
+                      {/* Status (Interactive pill badge) */}
+                      <td className="py-3 px-3 text-center whitespace-nowrap">
+                        {quote.status === 'convertido' ? (
+                          <div className="inline-flex flex-col items-center">
+                            {getStatusBadge(quote.status)}
+                            {quote.detalhesConversao && (
+                              <div className="text-[9px] text-[#1971C2] mt-0.5 truncate max-w-[130px] mx-auto" title={quote.detalhesConversao}>
+                                {quote.detalhesConversao}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="inline-flex flex-col items-center">
+                            <div className="relative inline-block">
+                              <select
+                                value={quote.status}
+                                onChange={(e) => updateQuoteStatus(quote.id, e.target.value as any)}
+                                className={`appearance-none text-xs font-bold pl-2.5 pr-6 py-1 rounded-full cursor-pointer border transition-colors outline-none text-left ${
+                                  quote.status === 'aprovado'
+                                    ? 'bg-[#EBFBEE] text-[#2F9E44] border-[#2F9E44]/30 hover:bg-[#d3f9d8]'
+                                    : quote.status === 'enviado'
+                                    ? 'bg-[#FFF4E6] text-[#D97706] border-[#D97706]/30 hover:bg-[#ffe8cc]'
+                                    : quote.status === 'recusado'
+                                    ? 'bg-[#FFF5F5] text-[#E03131] border-[#E03131]/30 hover:bg-[#ffe3e3]'
+                                    : 'bg-gray-100 text-gray-700 border-gray-300 hover:bg-gray-200'
+                                }`}
+                                title="Clique para alterar o status"
+                              >
+                                <option value="rascunho">● Rascunho</option>
+                                <option value="enviado">● Enviado</option>
+                                <option value="aprovado">● Aprovado</option>
+                                <option value="recusado">● Recusado</option>
+                              </select>
+                              <span className="material-symbols-outlined text-[14px] absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none text-current opacity-70">
+                                expand_more
+                              </span>
+                            </div>
                           </div>
                         )}
                       </td>
 
-                      {/* Actions */}
+                      {/* Actions (Clean, dedicated spacing) */}
                       <td className="py-3 px-3 text-right whitespace-nowrap">
-                        <div className="flex items-center justify-end gap-1">
+                        <div className="flex items-center justify-end gap-1.5">
                           {/* View A4 Sheet */}
                           <Button
                             variant="dark"
@@ -370,21 +401,6 @@ export const OrcamentosView: React.FC = () => {
                             >
                               Faturar
                             </Button>
-                          )}
-
-                          {/* Quick Status Dropdown */}
-                          {quote.status !== 'convertido' && (
-                            <select
-                              value={quote.status}
-                              onChange={(e) => updateQuoteStatus(quote.id, e.target.value as any)}
-                              className="p-1 rounded text-[11px] border border-gray-300 bg-white text-gray-700 outline-none"
-                              title="Alterar status"
-                            >
-                              <option value="rascunho">Rascunho</option>
-                              <option value="enviado">Enviado</option>
-                              <option value="aprovado">Aprovado</option>
-                              <option value="recusado">Recusado</option>
-                            </select>
                           )}
 
                           {/* Edit */}
@@ -483,12 +499,38 @@ export const OrcamentosView: React.FC = () => {
                         <span className="text-[11px] text-gray-500">{quote.responsavelNome}</span>
                       </div>
 
-                      <div className="text-right">
+                      <div className="text-right flex flex-col items-end">
                         <div className="font-mono font-black text-base text-[#010102]">
                           R$ {quote.valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                         </div>
-                        <div className="mt-0.5 flex justify-end">
-                          {getStatusBadge(quote.status)}
+                        <div className="mt-1">
+                          {quote.status === 'convertido' ? (
+                            getStatusBadge(quote.status)
+                          ) : (
+                            <div className="relative inline-block">
+                              <select
+                                value={quote.status}
+                                onChange={(e) => updateQuoteStatus(quote.id, e.target.value as any)}
+                                className={`appearance-none text-[11px] font-bold pl-2.5 pr-5 py-0.5 rounded-full border transition-colors outline-none cursor-pointer ${
+                                  quote.status === 'aprovado'
+                                    ? 'bg-[#EBFBEE] text-[#2F9E44] border-[#2F9E44]/30'
+                                    : quote.status === 'enviado'
+                                    ? 'bg-[#FFF4E6] text-[#D97706] border-[#D97706]/30'
+                                    : quote.status === 'recusado'
+                                    ? 'bg-[#FFF5F5] text-[#E03131] border-[#E03131]/30'
+                                    : 'bg-gray-100 text-gray-700 border-gray-300'
+                                }`}
+                              >
+                                <option value="rascunho">● Rascunho</option>
+                                <option value="enviado">● Enviado</option>
+                                <option value="aprovado">● Aprovado</option>
+                                <option value="recusado">● Recusado</option>
+                              </select>
+                              <span className="material-symbols-outlined text-[12px] absolute right-1 top-1/2 -translate-y-1/2 pointer-events-none text-current opacity-70">
+                                expand_more
+                              </span>
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -530,19 +572,6 @@ export const OrcamentosView: React.FC = () => {
                           >
                             Faturar
                           </Button>
-                        )}
-
-                        {quote.status !== 'convertido' && (
-                          <select
-                            value={quote.status}
-                            onChange={(e) => updateQuoteStatus(quote.id, e.target.value as any)}
-                            className="p-1 rounded text-[11px] border border-gray-300 bg-white text-gray-700 outline-none"
-                          >
-                            <option value="rascunho">Rascunho</option>
-                            <option value="enviado">Enviado</option>
-                            <option value="aprovado">Aprovado</option>
-                            <option value="recusado">Recusado</option>
-                          </select>
                         )}
                       </div>
 
