@@ -28,6 +28,25 @@ export const ContasView: React.FC = () => {
   const [selectedStatus, setSelectedStatus] = useState<'todos' | AccountStatus>('todos');
   const [searchTerm, setSearchTerm] = useState('');
 
+  // Sync activeTab with browser history
+  React.useEffect(() => {
+    const handlePopState = (e: PopStateEvent) => {
+      if (e.state?.activeTab) {
+        setActiveTab(e.state.activeTab);
+        setCurrentPage(1);
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  const handleTabChange = (tab: AccountType) => {
+    if (tab === activeTab) return;
+    window.history.pushState({ isView: true, view: 'contas', activeTab: tab }, '', `#contas?tab=${tab}`);
+    setActiveTab(tab);
+    setCurrentPage(1);
+  };
+
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 8;
@@ -80,10 +99,7 @@ export const ContasView: React.FC = () => {
       {/* Primary Tabs */}
       <div className="flex flex-wrap border-b border-[#DEE2E6] gap-2 pb-0.5">
         <button
-          onClick={() => {
-            setActiveTab('pagar');
-            setCurrentPage(1);
-          }}
+          onClick={() => handleTabChange('pagar')}
           className={`pb-3 px-4 font-bold text-sm transition-all flex items-center gap-2 border-b-2 whitespace-nowrap cursor-pointer ${
             activeTab === 'pagar'
               ? 'border-[#E03131] text-[#E03131]'
@@ -95,10 +111,7 @@ export const ContasView: React.FC = () => {
         </button>
 
         <button
-          onClick={() => {
-            setActiveTab('receber');
-            setCurrentPage(1);
-          }}
+          onClick={() => handleTabChange('receber')}
           className={`pb-3 px-4 font-bold text-sm transition-all flex items-center gap-2 border-b-2 whitespace-nowrap cursor-pointer ${
             activeTab === 'receber'
               ? 'border-[#2F9E44] text-[#2F9E44]'
@@ -331,18 +344,20 @@ export const ContasView: React.FC = () => {
                     >
                       {/* Header: Descrição + Status */}
                       <div className="flex items-start justify-between gap-2">
-                        <h4 className="text-xs font-bold text-[#010102] leading-snug">
+                        <h4 className="text-xs font-bold text-[#010102] leading-snug min-w-0 flex-1 break-words">
                           {acc.descricao}
                         </h4>
-                        <StatusBadge status={acc.status} size="xs" />
+                        <div className="shrink-0">
+                          <StatusBadge status={acc.status} size="xs" />
+                        </div>
                       </div>
 
                       {/* Middle: Fornecedor/Cliente + Parcela + Vencimento */}
                       <div className="flex items-center justify-between text-[11px] text-gray-600 gap-2 flex-wrap">
-                        <span className="font-semibold text-gray-800 truncate max-w-[180px]">
+                        <span className="font-semibold text-gray-800 truncate min-w-0 flex-1">
                           {acc.fornecedorCliente}
                         </span>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 shrink-0">
                           <span className="bg-gray-100 px-1.5 py-0.5 rounded text-[10px] font-bold text-gray-600">
                             Parc. {acc.parcela}
                           </span>

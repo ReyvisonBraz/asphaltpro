@@ -40,8 +40,6 @@ export const NovoLancamentoModal: React.FC = () => {
     }
   }, [isNovoLancamentoOpen, novoLancamentoInitialTab]);
 
-  if (!isNovoLancamentoOpen) return null;
-
   const handleNumericInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value.replace(/[^\d,]/g, '');
     setValor(val);

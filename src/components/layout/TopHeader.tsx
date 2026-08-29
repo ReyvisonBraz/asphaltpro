@@ -10,6 +10,9 @@ import { ShieldAlert, ShieldCheck } from 'lucide-react';
 export const TopHeader: React.FC = () => {
   const {
     currentView,
+    navigateBack,
+    canGoBack,
+    previousViewTitle,
     globalSearch,
     setGlobalSearch,
     notifications,
@@ -67,22 +70,35 @@ export const TopHeader: React.FC = () => {
   return (
     <>
       <header className="h-16 bg-white border-b border-[#DEE2E6] z-30 flex justify-between items-center px-4 sm:px-6 lg:px-10 sticky top-0 w-full shadow-none">
-        {/* Title + Mobile Menu Trigger */}
-        <div className="flex items-center gap-3">
+        {/* Title + Back Button + Mobile Menu Trigger */}
+        <div className="flex items-center gap-1.5 sm:gap-3 min-w-0 flex-1 mr-2">
           <button
             onClick={() => setIsMobileSidebarOpen(true)}
-            className="lg:hidden p-2 -ml-1 text-gray-700 hover:text-black hover:bg-gray-100 rounded-lg flex items-center justify-center"
+            className="lg:hidden p-2 -ml-1 text-gray-700 hover:text-black hover:bg-gray-100 rounded-lg flex items-center justify-center shrink-0 cursor-pointer"
             aria-label="Abrir Menu"
           >
             <span className="material-symbols-outlined text-[24px]">menu</span>
           </button>
-          <h2 className="text-lg sm:text-xl lg:text-2xl font-bold text-[#010102] tracking-tight truncate max-w-[180px] sm:max-w-md">
+
+          {canGoBack && (
+            <button
+              onClick={navigateBack}
+              className="flex items-center gap-1 px-2 sm:px-2.5 py-1.5 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-800 hover:text-black text-xs font-bold transition-all border border-gray-200 shadow-2xs shrink-0 cursor-pointer active:scale-95"
+              title={`Voltar para ${previousViewTitle || 'tela anterior'}`}
+              aria-label="Voltar à tela anterior"
+            >
+              <span className="material-symbols-outlined text-[18px]">arrow_back</span>
+              <span className="hidden sm:inline">Voltar</span>
+            </button>
+          )}
+
+          <h2 className="text-base sm:text-xl lg:text-2xl font-bold text-[#010102] tracking-tight truncate min-w-0">
             {viewTitles[currentView] || 'Painel Financeiro'}
           </h2>
         </div>
 
         {/* Center / Right controls */}
-        <div className="flex items-center gap-2 sm:gap-4 lg:gap-5">
+        <div className="flex items-center gap-1.5 sm:gap-3 lg:gap-4 shrink-0">
           {/* Sync Status Badge */}
           <SyncStatusBadge onClick={() => setIsSyncModalOpen(true)} />
 
@@ -138,7 +154,15 @@ export const TopHeader: React.FC = () => {
                         </span>
                       )}
                     </div>
-                    <span className="text-xs text-[#77767B]">Usina de Asfalto</span>
+                    <button
+                      type="button"
+                      onClick={() => setIsNotifOpen(false)}
+                      className="w-7 h-7 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-700 flex items-center justify-center transition-colors cursor-pointer"
+                      title="Fechar notificações"
+                      aria-label="Fechar"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">close</span>
+                    </button>
                   </div>
 
                   <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
@@ -188,7 +212,7 @@ export const TopHeader: React.FC = () => {
             {/* Help button */}
             <button
               onClick={() => setIsHelpOpen(true)}
-              className="w-9 h-9 sm:w-10 sm:h-10 rounded-full hover:bg-[#F1EDEC] hover:text-[#835400] transition-colors flex items-center justify-center"
+              className="w-9 h-9 sm:w-10 sm:h-10 rounded-full hover:bg-[#F1EDEC] hover:text-[#835400] transition-colors hidden sm:flex items-center justify-center cursor-pointer"
               title="Ajuda e Atalhos"
             >
               <span className="material-symbols-outlined text-[20px] sm:text-[22px]">help_outline</span>
@@ -219,19 +243,30 @@ export const TopHeader: React.FC = () => {
             {/* User Menu Dropdown */}
             {isUserMenuOpen && (
               <div className="absolute right-0 mt-2 w-72 bg-white rounded-2xl border border-[#DEE2E6] shadow-xl py-2 z-50 animate-in fade-in slide-in-from-top-2">
-                <div className="px-4 py-2.5 border-b border-gray-100 flex items-center gap-3">
-                  <img
-                    src={user.avatarUrl}
-                    alt={user.name}
-                    className="w-9 h-9 rounded-full object-cover border border-gray-300 shrink-0"
-                  />
-                  <div className="min-w-0">
-                    <p className="text-xs font-bold text-[#010102] truncate">{user.name}</p>
-                    <p className="text-[11px] text-gray-500 truncate">{user.email}</p>
-                    <span className="inline-block mt-0.5 px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-amber-100 text-amber-900 border border-amber-200">
-                      Perfil: {user.role}
-                    </span>
+                <div className="px-4 py-2.5 border-b border-gray-100 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <img
+                      src={user.avatarUrl}
+                      alt={user.name}
+                      className="w-9 h-9 rounded-full object-cover border border-gray-300 shrink-0"
+                    />
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-[#010102] truncate">{user.name}</p>
+                      <p className="text-[11px] text-gray-500 truncate">{user.email}</p>
+                      <span className="inline-block mt-0.5 px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-amber-100 text-amber-900 border border-amber-200">
+                        Perfil: {user.role}
+                      </span>
+                    </div>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsUserMenuOpen(false)}
+                    className="w-7 h-7 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-700 flex items-center justify-center transition-colors shrink-0 cursor-pointer"
+                    title="Fechar menu do usuário"
+                    aria-label="Fechar"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">close</span>
+                  </button>
                 </div>
 
                 {/* Quick Switch User (Demo/Simulation) */}

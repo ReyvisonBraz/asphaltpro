@@ -17,8 +17,6 @@ export const NovaContaModal: React.FC = () => {
   const [errorDesc, setErrorDesc] = useState('');
   const [errorValor, setErrorValor] = useState('');
 
-  if (!isNovaContaOpen) return null;
-
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!descricao.trim()) {

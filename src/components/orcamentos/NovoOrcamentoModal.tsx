@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Quote, QuoteItem, QuoteStatus, QuoteCatalogItem, BusinessPartner } from '../../types';
 import { CatalogoItensDrawer } from './CatalogoItensDrawer';
@@ -38,6 +38,56 @@ export const NovoOrcamentoModal: React.FC<NovoOrcamentoModalProps> = ({
   } = useApp();
 
   const [isCatalogDrawerOpen, setIsCatalogDrawerOpen] = useState(false);
+
+  const modalIdRef = useRef(`orc-modal-${Math.random().toString(36).slice(2, 9)}`);
+  const pushedHistoryRef = useRef(false);
+
+  useEffect(() => {
+    if (!isOpen) {
+      if (pushedHistoryRef.current) {
+        pushedHistoryRef.current = false;
+        if (window.history.state?.modalId === modalIdRef.current) {
+          window.history.back();
+        }
+      }
+      return;
+    }
+
+    pushedHistoryRef.current = true;
+    window.history.pushState(
+      { isModal: true, modalId: modalIdRef.current },
+      ''
+    );
+
+    const handlePopState = () => {
+      if (pushedHistoryRef.current) {
+        pushedHistoryRef.current = false;
+        onClose();
+      }
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('popstate', handlePopState);
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = 'unset';
+      window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener('keydown', handleKeyDown);
+      if (pushedHistoryRef.current) {
+        pushedHistoryRef.current = false;
+        if (window.history.state?.modalId === modalIdRef.current) {
+          window.history.back();
+        }
+      }
+    };
+  }, [isOpen, onClose]);
 
   // Modal sizing, wizard & layout state
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
@@ -423,10 +473,11 @@ export const NovoOrcamentoModal: React.FC<NovoOrcamentoModalProps> = ({
               <button
                 type="button"
                 onClick={onClose}
-                title="Fechar janela"
-                className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors cursor-pointer"
+                title="Fechar janela (Esc ou Voltar)"
+                className="flex items-center justify-center w-8 h-8 rounded-full bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white border border-gray-700 transition-colors cursor-pointer"
+                aria-label="Fechar"
               >
-                <span className="material-symbols-outlined">close</span>
+                <span className="material-symbols-outlined text-[18px]">close</span>
               </button>
             </div>
           </div>
@@ -1558,8 +1609,15 @@ export const NovoOrcamentoModal: React.FC<NovoOrcamentoModalProps> = ({
 
           {/* Modal Footer Controls */}
           <div className="p-3.5 sm:p-4 bg-gray-50 border-t border-[#DEE2E6] flex flex-wrap items-center justify-between gap-3 shrink-0">
-            <div>
-              {isWizardMode && currentStep > 1 ? (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2.5 border border-gray-300 rounded-xl text-xs font-semibold text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+              {isWizardMode && currentStep > 1 && (
                 <button
                   type="button"
                   onClick={() => setCurrentStep((prev) => (prev > 1 ? ((prev - 1) as any) : 1))}
@@ -1567,14 +1625,6 @@ export const NovoOrcamentoModal: React.FC<NovoOrcamentoModalProps> = ({
                 >
                   <span className="material-symbols-outlined text-[16px]">arrow_back</span>
                   <span>Voltar para {currentStep === 2 ? 'Cliente' : 'Itens'}</span>
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="px-4 py-2.5 border border-gray-300 rounded-xl text-xs font-semibold text-gray-700 hover:bg-gray-100 transition-colors cursor-pointer"
-                >
-                  Cancelar
                 </button>
               )}
             </div>

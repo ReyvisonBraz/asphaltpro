@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import { ViewMode } from '../../types';
 import { PWAInstallButton } from '../common/PWAInstallButton';
@@ -14,6 +14,41 @@ export const Sidebar: React.FC = () => {
     setIsMobileSidebarOpen,
     quotes
   } = useApp();
+
+  const pushedSidebarRef = useRef(false);
+
+  useEffect(() => {
+    if (!isMobileSidebarOpen) {
+      if (pushedSidebarRef.current) {
+        pushedSidebarRef.current = false;
+        if (window.history.state?.isMobileSidebar) {
+          window.history.back();
+        }
+      }
+      return;
+    }
+
+    pushedSidebarRef.current = true;
+    window.history.pushState({ isModal: true, isMobileSidebar: true }, '');
+
+    const handlePopState = () => {
+      if (pushedSidebarRef.current) {
+        pushedSidebarRef.current = false;
+        setIsMobileSidebarOpen(false);
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      if (pushedSidebarRef.current) {
+        pushedSidebarRef.current = false;
+        if (window.history.state?.isMobileSidebar) {
+          window.history.back();
+        }
+      }
+    };
+  }, [isMobileSidebarOpen, setIsMobileSidebarOpen]);
 
   const openQuotesCount = quotes.filter(q => q.status === 'enviado' || q.status === 'aprovado').length;
 

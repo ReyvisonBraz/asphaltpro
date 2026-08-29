@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Employee, BusinessPartner, PartnerType } from '../../types';
 import {
@@ -30,6 +30,25 @@ export const CadastrosView: React.FC = () => {
   const [activeSubTab, setActiveSubTab] = useState<
     'funcionarios' | 'fornecedores' | 'categorias' | 'contas'
   >('funcionarios');
+
+  // Sync subtabs with browser back/forward history
+  useEffect(() => {
+    const handlePopState = (e: PopStateEvent) => {
+      if (e.state?.subTab) {
+        setActiveSubTab(e.state.subTab);
+        setCurrentPage(1);
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  const handleSubTabChange = (tab: 'funcionarios' | 'fornecedores' | 'categorias' | 'contas') => {
+    if (tab === activeSubTab) return;
+    window.history.pushState({ isView: true, view: 'cadastros', subTab: tab }, '', `#cadastros?tab=${tab}`);
+    setActiveSubTab(tab);
+    setCurrentPage(1);
+  };
 
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -190,10 +209,7 @@ export const CadastrosView: React.FC = () => {
       {/* Navigation Sub-Tabs */}
       <div className="flex border-b border-[#DEE2E6] gap-2 overflow-x-auto pb-0.5 scrollbar-none flex-nowrap sm:flex-wrap">
         <button
-          onClick={() => {
-            setActiveSubTab('funcionarios');
-            setCurrentPage(1);
-          }}
+          onClick={() => handleSubTabChange('funcionarios')}
           className={`pb-3 px-4 font-bold text-sm transition-all flex items-center gap-2 border-b-2 whitespace-nowrap cursor-pointer ${
             activeSubTab === 'funcionarios'
               ? 'border-[#835400] text-[#835400]'
@@ -205,7 +221,7 @@ export const CadastrosView: React.FC = () => {
         </button>
 
         <button
-          onClick={() => setActiveSubTab('fornecedores')}
+          onClick={() => handleSubTabChange('fornecedores')}
           className={`pb-3 px-4 font-bold text-sm transition-all flex items-center gap-2 border-b-2 whitespace-nowrap cursor-pointer ${
             activeSubTab === 'fornecedores'
               ? 'border-[#835400] text-[#835400]'
@@ -217,7 +233,7 @@ export const CadastrosView: React.FC = () => {
         </button>
 
         <button
-          onClick={() => setActiveSubTab('categorias')}
+          onClick={() => handleSubTabChange('categorias')}
           className={`pb-3 px-4 font-bold text-sm transition-all flex items-center gap-2 border-b-2 whitespace-nowrap cursor-pointer ${
             activeSubTab === 'categorias'
               ? 'border-[#835400] text-[#835400]'
@@ -229,7 +245,7 @@ export const CadastrosView: React.FC = () => {
         </button>
 
         <button
-          onClick={() => setActiveSubTab('contas')}
+          onClick={() => handleSubTabChange('contas')}
           className={`pb-3 px-4 font-bold text-sm transition-all flex items-center gap-2 border-b-2 whitespace-nowrap cursor-pointer ${
             activeSubTab === 'contas'
               ? 'border-[#835400] text-[#835400]'
@@ -392,11 +408,11 @@ export const CadastrosView: React.FC = () => {
                   {paginatedEmployees.map((emp) => (
                     <div key={emp.id} className="p-4 space-y-3 bg-white">
                       <div className="flex items-start justify-between gap-2">
-                        <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="flex items-center gap-2.5 min-w-0 flex-1 mr-2">
                           <div className="w-9 h-9 rounded-full bg-[#835400] text-white flex items-center justify-center font-bold text-xs shrink-0">
                             {emp.avatarInitials || emp.nome.slice(0, 2).toUpperCase()}
                           </div>
-                          <div className="min-w-0">
+                          <div className="min-w-0 flex-1">
                             <div className="font-bold text-sm text-[#010102] truncate" title={emp.nome}>
                               {emp.nome}
                             </div>
@@ -536,14 +552,14 @@ export const CadastrosView: React.FC = () => {
                   {fornecedoresList.map((f) => (
                     <li key={f.id} className="py-3.5 flex justify-between items-start gap-3">
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="font-bold text-gray-900 truncate">{f.nome}</p>
+                        <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
+                          <p className="font-bold text-gray-900 truncate max-w-full">{f.nome}</p>
                           {f.nomeFantasia && f.nomeFantasia !== f.nome && (
-                            <span className="text-gray-500 text-[11px]">({f.nomeFantasia})</span>
+                            <span className="text-gray-500 text-[11px] truncate">({f.nomeFantasia})</span>
                           )}
                         </div>
                         {f.ramoAtividade && (
-                          <p className="text-gray-500 text-[11px] mt-0.5">{f.ramoAtividade}</p>
+                          <p className="text-gray-500 text-[11px] mt-0.5 truncate">{f.ramoAtividade}</p>
                         )}
                         <div className="flex flex-wrap items-center gap-2 mt-1 text-[11px] text-gray-600">
                           {f.documento && (
@@ -561,7 +577,7 @@ export const CadastrosView: React.FC = () => {
                             deletePartner(f.id);
                           }
                         }}
-                        className="text-gray-400 hover:text-red-600 p-1 rounded hover:bg-red-50 transition-colors"
+                        className="text-gray-400 hover:text-red-600 p-1 rounded hover:bg-red-50 transition-colors shrink-0 cursor-pointer"
                         title="Excluir parceiro"
                       >
                         <span className="material-symbols-outlined text-[18px]">delete</span>
@@ -595,14 +611,14 @@ export const CadastrosView: React.FC = () => {
                   {clientesList.map((c) => (
                     <li key={c.id} className="py-3.5 flex justify-between items-start gap-3">
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="font-bold text-gray-900 truncate">{c.nome}</p>
+                        <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
+                          <p className="font-bold text-gray-900 truncate max-w-full">{c.nome}</p>
                           {c.nomeFantasia && c.nomeFantasia !== c.nome && (
-                            <span className="text-gray-500 text-[11px]">({c.nomeFantasia})</span>
+                            <span className="text-gray-500 text-[11px] truncate">({c.nomeFantasia})</span>
                           )}
                         </div>
                         {c.ramoAtividade && (
-                          <p className="text-gray-500 text-[11px] mt-0.5">{c.ramoAtividade}</p>
+                          <p className="text-gray-500 text-[11px] mt-0.5 truncate">{c.ramoAtividade}</p>
                         )}
                         <div className="flex flex-wrap items-center gap-2 mt-1 text-[11px] text-gray-600">
                           {c.documento && (
@@ -620,7 +636,7 @@ export const CadastrosView: React.FC = () => {
                             deletePartner(c.id);
                           }
                         }}
-                        className="text-gray-400 hover:text-red-600 p-1 rounded hover:bg-red-50 transition-colors"
+                        className="text-gray-400 hover:text-red-600 p-1 rounded hover:bg-red-50 transition-colors shrink-0 cursor-pointer"
                         title="Excluir cliente"
                       >
                         <span className="material-symbols-outlined text-[18px]">delete</span>

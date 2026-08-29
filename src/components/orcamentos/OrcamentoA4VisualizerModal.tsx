@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Quote } from '../../types';
 
@@ -16,6 +16,56 @@ export const OrcamentoA4VisualizerModal: React.FC<OrcamentoA4VisualizerModalProp
   onConvert
 }) => {
   const { letterheadSettings, showToast, updateQuoteStatus } = useApp();
+
+  const modalIdRef = useRef(`a4-modal-${Math.random().toString(36).slice(2, 9)}`);
+  const pushedHistoryRef = useRef(false);
+
+  useEffect(() => {
+    if (!quote) {
+      if (pushedHistoryRef.current) {
+        pushedHistoryRef.current = false;
+        if (window.history.state?.modalId === modalIdRef.current) {
+          window.history.back();
+        }
+      }
+      return;
+    }
+
+    pushedHistoryRef.current = true;
+    window.history.pushState(
+      { isModal: true, modalId: modalIdRef.current },
+      ''
+    );
+
+    const handlePopState = () => {
+      if (pushedHistoryRef.current) {
+        pushedHistoryRef.current = false;
+        onClose();
+      }
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('popstate', handlePopState);
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = 'unset';
+      window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener('keydown', handleKeyDown);
+      if (pushedHistoryRef.current) {
+        pushedHistoryRef.current = false;
+        if (window.history.state?.modalId === modalIdRef.current) {
+          window.history.back();
+        }
+      }
+    };
+  }, [quote, onClose]);
 
   if (!quote) return null;
 
@@ -160,13 +210,14 @@ export const OrcamentoA4VisualizerModal: React.FC<OrcamentoA4VisualizerModalProp
               </button>
             )}
 
-            {/* Close */}
+            {/* Close Button */}
             <button
               onClick={onClose}
-              className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors ml-2"
-              title="Fechar visualização"
+              className="flex items-center gap-1 px-3 py-1.5 bg-red-600/90 hover:bg-red-600 text-white text-xs font-bold rounded-lg transition-colors ml-2 cursor-pointer shadow-xs"
+              title="Fechar visualização A4 (Esc ou Voltar)"
             >
-              <span className="material-symbols-outlined text-[22px]">close</span>
+              <span className="material-symbols-outlined text-[16px]">close</span>
+              <span>Fechar</span>
             </button>
           </div>
         </div>
@@ -422,6 +473,17 @@ export const OrcamentoA4VisualizerModal: React.FC<OrcamentoA4VisualizerModalProp
           </div>
         </div>
       </div>
+
+        {/* Floating Quick Close Button (Mobile & Desktop) */}
+        <button
+          onClick={onClose}
+          className="fixed bottom-6 right-6 z-60 bg-[#010102] hover:bg-black text-white px-4 py-2.5 rounded-full border border-gray-700 shadow-2xl flex items-center gap-2 text-xs font-bold print:hidden cursor-pointer active:scale-95 transition-all"
+          title="Fechar visualização A4 (Esc ou Voltar)"
+          aria-label="Fechar visualização"
+        >
+          <span className="material-symbols-outlined text-[18px] text-red-400">close</span>
+          <span>Fechar Visualização</span>
+        </button>
 
       {/* Print CSS Injection */}
       <style>{`

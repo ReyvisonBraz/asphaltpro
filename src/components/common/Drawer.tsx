@@ -1,5 +1,4 @@
-import React, { useEffect } from 'react';
-import { Button } from './Button';
+import React, { useEffect, useRef } from 'react';
 
 export interface DrawerProps {
   isOpen: boolean;
@@ -29,8 +28,32 @@ export const Drawer: React.FC<DrawerProps> = ({
   footer,
   className = '',
 }) => {
+  const drawerIdRef = useRef(`drawer-${Math.random().toString(36).slice(2, 9)}`);
+  const pushedHistoryRef = useRef(false);
+
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      if (pushedHistoryRef.current) {
+        pushedHistoryRef.current = false;
+        if (window.history.state?.modalId === drawerIdRef.current) {
+          window.history.back();
+        }
+      }
+      return;
+    }
+
+    pushedHistoryRef.current = true;
+    window.history.pushState(
+      { isModal: true, modalId: drawerIdRef.current },
+      ''
+    );
+
+    const handlePopState = () => {
+      if (pushedHistoryRef.current) {
+        pushedHistoryRef.current = false;
+        onClose();
+      }
+    };
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -39,11 +62,19 @@ export const Drawer: React.FC<DrawerProps> = ({
     };
 
     document.body.style.overflow = 'hidden';
+    window.addEventListener('popstate', handlePopState);
     window.addEventListener('keydown', handleKeyDown);
 
     return () => {
       document.body.style.overflow = 'unset';
+      window.removeEventListener('popstate', handlePopState);
       window.removeEventListener('keydown', handleKeyDown);
+      if (pushedHistoryRef.current) {
+        pushedHistoryRef.current = false;
+        if (window.history.state?.modalId === drawerIdRef.current) {
+          window.history.back();
+        }
+      }
     };
   }, [isOpen, onClose]);
 
@@ -73,14 +104,15 @@ export const Drawer: React.FC<DrawerProps> = ({
               {subtitle && <p className="text-xs text-[#77767B] mt-0.5 truncate">{subtitle}</p>}
             </div>
 
-            <Button
-              variant="ghost"
-              size="xs"
-              icon="close"
+            <button
+              type="button"
               onClick={onClose}
-              className="text-gray-400 hover:text-black hover:bg-gray-100 rounded-full w-8 h-8 p-0"
+              className="flex items-center justify-center w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-500 hover:text-black border border-gray-200/80 transition-colors shrink-0 cursor-pointer"
+              title="Fechar painel lateral (Esc ou Voltar)"
               aria-label="Fechar"
-            />
+            >
+              <span className="material-symbols-outlined text-[18px]">close</span>
+            </button>
           </div>
 
           {/* Content (Scrollable) */}

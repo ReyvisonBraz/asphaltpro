@@ -1,5 +1,4 @@
-import React, { useEffect } from 'react';
-import { Button } from './Button';
+import React, { useEffect, useRef } from 'react';
 
 export interface ModalProps {
   isOpen: boolean;
@@ -37,8 +36,33 @@ export const Modal: React.FC<ModalProps> = ({
   className = '',
   hideHeader = false,
 }) => {
+  const modalIdRef = useRef(`modal-${Math.random().toString(36).slice(2, 9)}`);
+  const pushedHistoryRef = useRef(false);
+
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      if (pushedHistoryRef.current) {
+        pushedHistoryRef.current = false;
+        if (window.history.state?.modalId === modalIdRef.current) {
+          window.history.back();
+        }
+      }
+      return;
+    }
+
+    // Register modal entry in browser history for back navigation
+    pushedHistoryRef.current = true;
+    window.history.pushState(
+      { isModal: true, modalId: modalIdRef.current },
+      ''
+    );
+
+    const handlePopState = () => {
+      if (pushedHistoryRef.current) {
+        pushedHistoryRef.current = false;
+        onClose();
+      }
+    };
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (closeOnEsc && e.key === 'Escape') {
@@ -47,11 +71,19 @@ export const Modal: React.FC<ModalProps> = ({
     };
 
     document.body.style.overflow = 'hidden';
+    window.addEventListener('popstate', handlePopState);
     window.addEventListener('keydown', handleKeyDown);
 
     return () => {
       document.body.style.overflow = 'unset';
+      window.removeEventListener('popstate', handlePopState);
       window.removeEventListener('keydown', handleKeyDown);
+      if (pushedHistoryRef.current) {
+        pushedHistoryRef.current = false;
+        if (window.history.state?.modalId === modalIdRef.current) {
+          window.history.back();
+        }
+      }
     };
   }, [isOpen, closeOnEsc, onClose]);
 
@@ -91,14 +123,15 @@ export const Modal: React.FC<ModalProps> = ({
               {subtitle && <p className="text-xs text-[#77767B] mt-0.5 truncate">{subtitle}</p>}
             </div>
 
-            <Button
-              variant="ghost"
-              size="xs"
-              icon="close"
+            <button
+              type="button"
               onClick={onClose}
-              className="text-gray-400 hover:text-black hover:bg-gray-100 rounded-full w-8 h-8 p-0 shrink-0"
+              className="flex items-center justify-center w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-500 hover:text-black border border-gray-200/80 transition-colors shrink-0 cursor-pointer"
+              title="Fechar janela (Esc ou Voltar)"
               aria-label="Fechar"
-            />
+            >
+              <span className="material-symbols-outlined text-[18px]">close</span>
+            </button>
           </div>
         )}
 

@@ -51,6 +51,10 @@ interface AppContextType {
   logout: () => void;
   currentView: ViewMode;
   setCurrentView: (view: ViewMode) => void;
+  navigateBack: () => void;
+  canGoBack: boolean;
+  previousViewTitle: string | null;
+  viewHistory: ViewMode[];
   
   // User Management
   addSystemUser: (userData: Omit<SystemUser, 'id' | 'createdAt'>) => void;
@@ -188,6 +192,41 @@ interface AppContextType {
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
+export const VIEW_TITLES: Record<ViewMode, string> = {
+  dashboard: 'Início',
+  lancamentos: 'Caixa (Lançamentos)',
+  contas: 'Contas a Pagar/Receber',
+  orcamentos: 'Orçamentos & Propostas',
+  cadastros: 'Cadastros Gerais',
+  relatorios: 'Relatórios & DRE',
+  configuracoes: 'Configurações'
+};
+
+const VALID_VIEWS: ViewMode[] = [
+  'dashboard',
+  'lancamentos',
+  'contas',
+  'orcamentos',
+  'cadastros',
+  'relatorios',
+  'configuracoes'
+];
+
+const getInitialView = (): ViewMode => {
+  if (typeof window === 'undefined') return 'dashboard';
+  const hash = window.location.hash.replace(/^#\/?/, '').split('?')[0];
+  if (VALID_VIEWS.includes(hash as ViewMode)) {
+    return hash as ViewMode;
+  }
+  try {
+    const saved = localStorage.getItem('asphalt_current_view');
+    if (saved && VALID_VIEWS.includes(saved as ViewMode)) {
+      return saved as ViewMode;
+    }
+  } catch {}
+  return 'dashboard';
+};
+
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // Auth state
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
@@ -209,7 +248,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const userRole: UserRole = (user.userRole as UserRole) || 'admin';
   const permissions: RolePermissions = ROLE_PERMISSIONS_MAP[userRole] || ROLE_PERMISSIONS_MAP.admin;
 
-  const [currentView, setCurrentView] = useState<ViewMode>('dashboard');
+  const [currentView, setCurrentViewInternal] = useState<ViewMode>(getInitialView);
+  const [viewHistory, setViewHistory] = useState<ViewMode[]>([getInitialView()]);
 
   // Transactions State
   const [transactions, setTransactions] = useState<Transaction[]>(() => {
@@ -289,6 +329,106 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     resolucao?: string;
     errorId?: string;
   } | null>(null);
+
+  // View Navigation with History Stack
+  const setCurrentView = (newView: ViewMode) => {
+    if (newView === currentView) return;
+
+    try {
+      localStorage.setItem('asphalt_current_view', newView);
+    } catch {}
+
+    window.history.pushState({ isView: true, view: newView }, '', '#' + newView);
+
+    setViewHistory((prev) => {
+      if (prev[prev.length - 1] === newView) return prev;
+      return [...prev, newView];
+    });
+    setCurrentViewInternal(newView);
+  };
+
+  const navigateBack = () => {
+    // 1. If any global modal is open, close it first without leaving the view
+    if (isNovoLancamentoOpen) { setIsNovoLancamentoOpen(false); return; }
+    if (isNovaContaOpen) { setIsNovaContaOpen(false); return; }
+    if (isNovoOrcamentoOpen) { setIsNovoOrcamentoOpen(false); setEditingQuote(null); return; }
+    if (isNovoFuncionarioOpen) { setIsNovoFuncionarioOpen(false); setEditingEmployee(null); return; }
+    if (viewingQuoteA4) { setViewingQuoteA4(null); return; }
+    if (convertingQuote) { setConvertingQuote(null); return; }
+    if (isHelpOpen) { setIsHelpOpen(false); return; }
+    if (isDiagnosticsOpen) { setIsDiagnosticsOpen(false); return; }
+    if (isMobileSidebarOpen) { setIsMobileSidebarOpen(false); return; }
+
+    // 2. If we have previous views in history, step back in browser history
+    if (viewHistory.length > 1) {
+      window.history.back();
+    } else if (currentView !== 'dashboard') {
+      setCurrentView('dashboard');
+    }
+  };
+
+  // Sync hash on initial mount
+  useEffect(() => {
+    if (!window.location.hash) {
+      window.history.replaceState({ isView: true, view: currentView }, '', '#' + currentView);
+    }
+  }, []);
+
+  // Global popstate listener for back button (Phone Back or Browser Back)
+  useEffect(() => {
+    const handlePopState = (e: PopStateEvent) => {
+      // If the pop event is for a modal, the modal's internal listener handles it
+      if (e.state?.isModal) return;
+
+      // If any modal was open at the global level, close it and stay on the current view
+      if (isNovoLancamentoOpen) { setIsNovoLancamentoOpen(false); return; }
+      if (isNovaContaOpen) { setIsNovaContaOpen(false); return; }
+      if (isNovoOrcamentoOpen) { setIsNovoOrcamentoOpen(false); setEditingQuote(null); return; }
+      if (isNovoFuncionarioOpen) { setIsNovoFuncionarioOpen(false); setEditingEmployee(null); return; }
+      if (viewingQuoteA4) { setViewingQuoteA4(null); return; }
+      if (convertingQuote) { setConvertingQuote(null); return; }
+      if (isHelpOpen) { setIsHelpOpen(false); return; }
+      if (isDiagnosticsOpen) { setIsDiagnosticsOpen(false); return; }
+      if (isMobileSidebarOpen) { setIsMobileSidebarOpen(false); return; }
+
+      // Otherwise, handle returning to the previous view
+      const hash = window.location.hash.replace(/^#\/?/, '').split('?')[0];
+      const targetView: ViewMode = (e.state?.view && VALID_VIEWS.includes(e.state.view))
+        ? e.state.view
+        : (VALID_VIEWS.includes(hash as ViewMode) ? (hash as ViewMode) : 'dashboard');
+
+      setCurrentViewInternal(targetView);
+      try {
+        localStorage.setItem('asphalt_current_view', targetView);
+      } catch {}
+
+      setViewHistory((prev) => {
+        if (prev.length > 1) {
+          return prev.slice(0, -1);
+        }
+        return [targetView];
+      });
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [
+    isNovoLancamentoOpen,
+    isNovaContaOpen,
+    isNovoOrcamentoOpen,
+    isNovoFuncionarioOpen,
+    viewingQuoteA4,
+    convertingQuote,
+    isHelpOpen,
+    isDiagnosticsOpen,
+    isMobileSidebarOpen
+  ]);
+
+  const canGoBack = viewHistory.length > 1 || currentView !== 'dashboard';
+  const previousView: ViewMode | null = viewHistory.length > 1
+    ? viewHistory[viewHistory.length - 2]
+    : (currentView !== 'dashboard' ? 'dashboard' : null);
+  const previousViewTitle = previousView ? VIEW_TITLES[previousView] : null;
 
   // Save to localStorage
   useEffect(() => {
@@ -1380,6 +1520,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         logout,
         currentView,
         setCurrentView,
+        navigateBack,
+        canGoBack,
+        previousViewTitle,
+        viewHistory,
         transactions,
         addTransaction,
         deleteTransaction,

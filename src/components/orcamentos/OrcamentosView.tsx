@@ -489,17 +489,17 @@ export const OrcamentosView: React.FC = () => {
                   <div className="p-4 flex flex-col gap-3 hover:bg-gray-50/70 transition-colors">
                     {/* Top: Numero + Status + Total */}
                     <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <div className="font-mono font-black text-sm text-[#010102] flex items-center gap-2">
-                          {quote.numero}
-                          <span className="text-[10px] font-normal text-gray-400 font-sans">
+                      <div className="min-w-0 flex-1 mr-2">
+                        <div className="font-mono font-black text-sm text-[#010102] flex items-center gap-2 truncate">
+                          <span>{quote.numero}</span>
+                          <span className="text-[10px] font-normal text-gray-400 font-sans shrink-0">
                             {quote.dataEmissao}
                           </span>
                         </div>
-                        <span className="text-[11px] text-gray-500">{quote.responsavelNome}</span>
+                        <span className="text-[11px] text-gray-500 truncate block">{quote.responsavelNome}</span>
                       </div>
 
-                      <div className="text-right flex flex-col items-end">
+                      <div className="text-right flex flex-col items-end shrink-0">
                         <div className="font-mono font-black text-base text-[#010102]">
                           R$ {quote.valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                         </div>

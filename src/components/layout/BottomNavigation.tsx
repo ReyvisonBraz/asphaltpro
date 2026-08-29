@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import { ViewMode } from '../../types';
 
@@ -22,6 +22,40 @@ export const BottomNavigation: React.FC<BottomNavigationProps> = ({ onOpenMobile
   } = useApp();
 
   const [isQuickActionsOpen, setIsQuickActionsOpen] = useState(false);
+  const pushedQuickActionsRef = useRef(false);
+
+  useEffect(() => {
+    if (!isQuickActionsOpen) {
+      if (pushedQuickActionsRef.current) {
+        pushedQuickActionsRef.current = false;
+        if (window.history.state?.isQuickActions) {
+          window.history.back();
+        }
+      }
+      return;
+    }
+
+    pushedQuickActionsRef.current = true;
+    window.history.pushState({ isModal: true, isQuickActions: true }, '');
+
+    const handlePopState = () => {
+      if (pushedQuickActionsRef.current) {
+        pushedQuickActionsRef.current = false;
+        setIsQuickActionsOpen(false);
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      if (pushedQuickActionsRef.current) {
+        pushedQuickActionsRef.current = false;
+        if (window.history.state?.isQuickActions) {
+          window.history.back();
+        }
+      }
+    };
+  }, [isQuickActionsOpen]);
 
   const pendingQuotes = quotes.filter(q => q.status === 'rascunho' || q.status === 'enviado').length;
 
