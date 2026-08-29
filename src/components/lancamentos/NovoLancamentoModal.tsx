@@ -186,6 +186,7 @@ export const NovoLancamentoModal: React.FC = () => {
             </span>
             <input
               type="text"
+              inputMode="decimal"
               value={valor}
               onChange={handleNumericInput}
               placeholder="0,00"

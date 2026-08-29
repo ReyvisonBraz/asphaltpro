@@ -186,6 +186,7 @@ export const NovaContaModal: React.FC = () => {
           <Input
             label="Valor Total (R$) *"
             placeholder="0,00"
+            inputMode="decimal"
             value={valor}
             onChange={(e) => {
               const val = e.target.value.replace(/[^\d,]/g, '');

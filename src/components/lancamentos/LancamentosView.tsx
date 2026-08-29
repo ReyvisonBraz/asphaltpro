@@ -9,6 +9,7 @@ import {
   Pagination,
   EmptyState,
   Modal,
+  SwipeableRow,
 } from '../common';
 
 export const LancamentosView: React.FC = () => {
@@ -30,6 +31,7 @@ export const LancamentosView: React.FC = () => {
   const [selectedResponsavel, setSelectedResponsavel] = useState('Todos os Responsáveis');
   const [selectedTipo, setSelectedTipo] = useState<'todos' | 'entrada' | 'saida'>('todos');
   const [localSearch, setLocalSearch] = useState('');
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [selectedTxForDetail, setSelectedTxForDetail] = useState<Transaction | null>(null);
 
   // Pagination
@@ -127,7 +129,7 @@ export const LancamentosView: React.FC = () => {
   };
 
   return (
-    <div className="flex-1 p-6 lg:p-10 max-w-[1440px] mx-auto w-full flex flex-col gap-6 animate-in fade-in duration-200">
+    <div className="flex-1 p-4 sm:p-6 lg:p-8 max-w-[1440px] mx-auto w-full flex flex-col gap-6 animate-in fade-in duration-200">
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div className="min-w-0">
@@ -196,105 +198,187 @@ export const LancamentosView: React.FC = () => {
         />
       </div>
 
-      {/* Filter Bar */}
+      {/* Filter Bar with Horizontal Chips & Fast Search */}
       <div className="bg-white p-4 rounded-2xl border border-[#DEE2E6] shadow-xs flex flex-col gap-3">
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 items-end">
-          {/* Tipo */}
-          <div className="flex flex-col gap-1 min-w-0">
-            <label className="text-xs font-bold text-[#010102]">Tipo</label>
-            <select
-              value={selectedTipo}
+        {/* Top: Search Bar + Advanced Filters Toggle */}
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1 min-w-0">
+            <span className="material-symbols-outlined absolute left-3.5 top-2.5 text-gray-400 text-[18px] pointer-events-none">
+              search
+            </span>
+            <input
+              type="text"
+              value={localSearch}
               onChange={(e) => {
-                setSelectedTipo(e.target.value as any);
+                setLocalSearch(e.target.value);
                 setCurrentPage(1);
               }}
-              className="w-full p-2 rounded-xl border border-[#DEE2E6] text-xs text-[#010102] bg-white focus:border-[#835400] focus:ring-1 focus:ring-[#835400]/20 focus:outline-none"
-            >
-              <option value="todos">Todos os Tipos</option>
-              <option value="entrada">Apenas Entradas</option>
-              <option value="saida">Apenas Saídas</option>
-            </select>
+              placeholder="Buscar lançamento, favorecido ou descrição..."
+              className="w-full pl-10 pr-8 py-2 text-xs rounded-xl border border-[#DEE2E6] text-[#010102] bg-white focus:border-[#835400] focus:ring-1 focus:ring-[#835400]/20 focus:outline-none"
+            />
+            {localSearch && (
+              <button
+                type="button"
+                onClick={() => setLocalSearch('')}
+                className="absolute right-3 top-2.5 text-xs text-gray-400 hover:text-black"
+              >
+                ✕
+              </button>
+            )}
           </div>
 
-          {/* Categoria */}
-          <div className="flex flex-col gap-1 min-w-0">
-            <label className="text-xs font-bold text-[#010102]">Categoria</label>
-            <select
-              value={selectedCategoria}
-              onChange={(e) => {
-                setSelectedCategoria(e.target.value);
-                setCurrentPage(1);
-              }}
-              className="w-full p-2 rounded-xl border border-[#DEE2E6] text-xs text-[#010102] bg-white focus:border-[#835400] focus:ring-1 focus:ring-[#835400]/20 focus:outline-none truncate"
-            >
-              <option>Todas as Categorias</option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.nome}>
-                  {c.nome}
-                </option>
-              ))}
-            </select>
-          </div>
+          <button
+            onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+            className={`px-3 py-2 text-xs font-bold rounded-xl border transition-all flex items-center gap-1.5 shrink-0 select-none ${
+              showAdvancedFilters || (selectedCategoria !== 'Todas as Categorias' || selectedResponsavel !== 'Todos os Responsáveis')
+                ? 'bg-[#835400] text-white border-[#835400] shadow-xs'
+                : 'bg-gray-50 hover:bg-gray-100 text-gray-700 border-[#DEE2E6]'
+            }`}
+            title="Filtros avançados (Datas e Responsável)"
+          >
+            <span className="material-symbols-outlined text-[16px]">tune</span>
+            <span className="hidden sm:inline">Filtros</span>
+          </button>
+        </div>
 
-          {/* Responsável */}
-          <div className="flex flex-col gap-1 min-w-0">
-            <label className="text-xs font-bold text-[#010102]">Responsável</label>
-            <select
-              value={selectedResponsavel}
-              onChange={(e) => {
-                setSelectedResponsavel(e.target.value);
-                setCurrentPage(1);
-              }}
-              className="w-full p-2 rounded-xl border border-[#DEE2E6] text-xs text-[#010102] bg-white focus:border-[#835400] focus:ring-1 focus:ring-[#835400]/20 focus:outline-none truncate"
-            >
-              <option>Todos os Responsáveis</option>
-              {employees.map((e) => (
-                <option key={e.id} value={e.nome}>
-                  {e.nome}
-                </option>
-              ))}
-            </select>
-          </div>
+        {/* Horizontal Chips Filter Bar (Scrollable on Mobile) */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none select-none">
+          {/* Tipo Chips */}
+          <button
+            onClick={() => {
+              setSelectedTipo('todos');
+              setCurrentPage(1);
+            }}
+            className={`px-3 py-1.5 text-xs font-bold rounded-xl whitespace-nowrap transition-all ${
+              selectedTipo === 'todos'
+                ? 'bg-[#010102] text-white shadow-xs'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            Todos
+          </button>
 
-          {/* Busca Texto */}
-          <div className="flex flex-col gap-1 min-w-0 sm:col-span-2 md:col-span-3 lg:col-span-2">
-            <label className="text-xs font-bold text-[#010102]">Buscar Descrição / Fornecedor</label>
-            <div className="relative w-full flex items-center">
-              <span className="material-symbols-outlined absolute left-3 text-gray-400 text-[18px] pointer-events-none">
-                search
-              </span>
-              <input
-                type="text"
-                value={localSearch}
-                onChange={(e) => {
-                  setLocalSearch(e.target.value);
+          <button
+            onClick={() => {
+              setSelectedTipo('entrada');
+              setCurrentPage(1);
+            }}
+            className={`px-3 py-1.5 text-xs font-bold rounded-xl whitespace-nowrap transition-all flex items-center gap-1 ${
+              selectedTipo === 'entrada'
+                ? 'bg-[#2F9E44] text-white shadow-xs'
+                : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
+            }`}
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+            Entradas
+          </button>
+
+          <button
+            onClick={() => {
+              setSelectedTipo('saida');
+              setCurrentPage(1);
+            }}
+            className={`px-3 py-1.5 text-xs font-bold rounded-xl whitespace-nowrap transition-all flex items-center gap-1 ${
+              selectedTipo === 'saida'
+                ? 'bg-[#E03131] text-white shadow-xs'
+                : 'bg-red-50 text-red-800 hover:bg-red-100'
+            }`}
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-red-500"></span>
+            Saídas
+          </button>
+
+          {/* Quick Category Chips */}
+          {['Venda de Asfalto (CBUQ)', 'Insumos / Matéria Prima', 'Combustível / Diesel', 'Folha de Pagamento'].map((catName) => {
+            const isCatSelected = selectedCategoria === catName;
+            return (
+              <button
+                key={catName}
+                onClick={() => {
+                  setSelectedCategoria(isCatSelected ? 'Todas as Categorias' : catName);
                   setCurrentPage(1);
                 }}
-                placeholder="Ex: CBUQ, CAP 50/70, Petrobras..."
-                className="w-full pl-9 pr-8 py-2 rounded-xl border border-[#DEE2E6] text-xs text-[#010102] bg-white focus:border-[#835400] focus:ring-1 focus:ring-[#835400]/20 focus:outline-none"
+                className={`px-3 py-1.5 text-xs font-semibold rounded-xl whitespace-nowrap transition-all border ${
+                  isCatSelected
+                    ? 'bg-[#835400] text-white border-[#835400] shadow-xs'
+                    : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
+                }`}
+              >
+                {catName}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Collapsible Advanced Filters Area */}
+        {showAdvancedFilters && (
+          <div className="pt-3 border-t border-gray-100 grid grid-cols-1 sm:grid-cols-3 gap-3 animate-in fade-in duration-150">
+            {/* Categoria Completa */}
+            <div className="flex flex-col gap-1 min-w-0">
+              <label className="text-xs font-bold text-[#010102]">Todas as Categorias</label>
+              <select
+                value={selectedCategoria}
+                onChange={(e) => {
+                  setSelectedCategoria(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="w-full p-2 rounded-xl border border-[#DEE2E6] text-xs text-[#010102] bg-white focus:border-[#835400] focus:ring-1 focus:ring-[#835400]/20 focus:outline-none truncate"
+              >
+                <option>Todas as Categorias</option>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.nome}>
+                    {c.nome}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Responsável */}
+            <div className="flex flex-col gap-1 min-w-0">
+              <label className="text-xs font-bold text-[#010102]">Responsável</label>
+              <select
+                value={selectedResponsavel}
+                onChange={(e) => {
+                  setSelectedResponsavel(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="w-full p-2 rounded-xl border border-[#DEE2E6] text-xs text-[#010102] bg-white focus:border-[#835400] focus:ring-1 focus:ring-[#835400]/20 focus:outline-none truncate"
+              >
+                <option>Todos os Responsáveis</option>
+                {employees.map((e) => (
+                  <option key={e.id} value={e.nome}>
+                    {e.nome}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Periodo / Datas */}
+            <div className="flex flex-col gap-1 min-w-0">
+              <label className="text-xs font-bold text-[#010102]">Período (Data Inicial)</label>
+              <input
+                type="date"
+                value={dataInicio}
+                onChange={(e) => {
+                  setDataInicio(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="w-full p-2 rounded-xl border border-[#DEE2E6] text-xs text-[#010102] bg-white focus:border-[#835400] focus:outline-none"
               />
-              {localSearch && (
-                <button
-                  type="button"
-                  onClick={() => setLocalSearch('')}
-                  className="absolute right-3 text-xs text-gray-400 hover:text-black"
-                >
-                  ✕
-                </button>
-              )}
             </div>
           </div>
-        </div>
+        )}
 
         {(localSearch ||
           selectedCategoria !== 'Todas as Categorias' ||
           selectedResponsavel !== 'Todos os Responsáveis' ||
-          selectedTipo !== 'todos') && (
+          selectedTipo !== 'todos' ||
+          dataInicio) && (
           <div className="flex items-center justify-between pt-2 border-t border-gray-100 text-xs text-gray-500">
             <span>Filtros ativos aplicados</span>
             <button
               onClick={handleResetFilters}
-              className="text-[#835400] hover:underline font-bold"
+              className="text-[#835400] hover:underline font-bold cursor-pointer"
             >
               Limpar todos os filtros
             </button>
@@ -314,69 +398,172 @@ export const LancamentosView: React.FC = () => {
             onAction={() => openNovoLancamentoWithTab('saida')}
           />
         ) : (
-          <div className="overflow-x-auto w-full">
-            <table className="w-full text-left border-collapse min-w-[760px]">
-              <thead className="bg-gray-50/80 border-b border-[#DEE2E6] text-xs font-bold text-gray-500">
-                <tr>
-                  <th className="py-3 px-4 whitespace-nowrap">Data</th>
-                  <th className="py-3 px-4 whitespace-nowrap">Tipo</th>
-                  <th className="py-3 px-4">Descrição / Favorecido</th>
-                  <th className="py-3 px-4 whitespace-nowrap">Categoria</th>
-                  <th className="py-3 px-4 whitespace-nowrap">Responsável</th>
-                  <th className="py-3 px-4 whitespace-nowrap">Pagamento</th>
-                  <th className="py-3 px-4 text-right whitespace-nowrap">Valor</th>
-                  <th className="py-3 px-4 text-center whitespace-nowrap">Ações</th>
-                </tr>
-              </thead>
-              <tbody className="text-xs divide-y divide-[#DEE2E6]">
-                {paginatedTransactions.map((tx) => (
-                  <tr
-                    key={tx.id}
-                    className="hover:bg-gray-50/80 transition-colors cursor-pointer group"
-                    onClick={() => setSelectedTxForDetail(tx)}
-                  >
-                    <td className="py-3 px-4 whitespace-nowrap text-gray-500 font-mono text-[11px]">
-                      {tx.data}
-                    </td>
-                    <td className="py-3 px-4 whitespace-nowrap">
-                      <StatusBadge status={tx.tipo} size="xs" />
-                    </td>
-                    <td className="py-3 px-4 font-bold text-[#010102] max-w-[220px]">
-                      <div className="truncate" title={tx.descricao}>
-                        {tx.descricao}
-                      </div>
-                      {tx.clienteFornecedor && (
-                        <div
-                          className="text-[11px] text-gray-500 font-normal truncate"
-                          title={tx.clienteFornecedor}
-                        >
-                          {tx.clienteFornecedor}
+          <>
+            {/* Desktop / Tablet View: Fluid Table with zero horizontal scrolling */}
+            <div className="hidden md:block w-full">
+              <table className="w-full text-left border-collapse table-fixed">
+                <thead className="bg-gray-50/80 border-b border-[#DEE2E6] text-xs font-bold text-gray-500">
+                  <tr>
+                    <th className="py-3 px-3 w-24">Data</th>
+                    <th className="py-3 px-2 w-24">Tipo</th>
+                    <th className="py-3 px-3">Descrição / Favorecido</th>
+                    <th className="py-3 px-3 w-32">Categoria</th>
+                    <th className="py-3 px-3 w-28 hidden lg:table-cell">Responsável</th>
+                    <th className="py-3 px-3 w-28 hidden xl:table-cell">Pagamento</th>
+                    <th className="py-3 px-3 w-32 text-right">Valor</th>
+                    <th className="py-3 px-2 w-20 text-center">Ações</th>
+                  </tr>
+                </thead>
+                <tbody className="text-xs divide-y divide-[#DEE2E6]">
+                  {paginatedTransactions.map((tx) => (
+                    <tr
+                      key={tx.id}
+                      className="hover:bg-gray-50/80 transition-colors cursor-pointer group"
+                      onClick={() => setSelectedTxForDetail(tx)}
+                    >
+                      <td className="py-3 px-3 whitespace-nowrap text-gray-500 font-mono text-[11px]">
+                        {tx.data}
+                      </td>
+                      <td className="py-3 px-2 whitespace-nowrap">
+                        <StatusBadge status={tx.tipo} size="xs" />
+                      </td>
+                      <td className="py-3 px-3 min-w-0">
+                        <div className="font-bold text-[#010102] truncate" title={tx.descricao}>
+                          {tx.descricao}
                         </div>
-                      )}
-                    </td>
-                    <td className="py-3 px-4 whitespace-nowrap">
-                      <span className="bg-gray-100 px-2 py-0.5 rounded text-gray-700 text-[10px] font-bold uppercase tracking-wider border border-gray-200 inline-block truncate max-w-[130px]">
-                        {tx.categoria}
+                        {tx.clienteFornecedor && (
+                          <div
+                            className="text-[11px] text-gray-500 font-normal truncate"
+                            title={tx.clienteFornecedor}
+                          >
+                            {tx.clienteFornecedor}
+                          </div>
+                        )}
+                      </td>
+                      <td className="py-3 px-3">
+                        <span className="bg-gray-100 px-2 py-0.5 rounded text-gray-700 text-[10px] font-bold uppercase tracking-wider border border-gray-200 inline-block truncate max-w-full">
+                          {tx.categoria}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3 text-gray-600 font-medium truncate hidden lg:table-cell" title={tx.responsavel}>
+                        {tx.responsavel}
+                      </td>
+                      <td className="py-3 px-3 text-gray-500 text-[11px] truncate hidden xl:table-cell" title={tx.formaPagamento}>
+                        {tx.formaPagamento}
+                      </td>
+                      <td
+                        className={`py-3 px-3 text-right font-extrabold whitespace-nowrap tabular-nums ${
+                          tx.tipo === 'entrada' ? 'text-[#2F9E44]' : 'text-[#E03131]'
+                        }`}
+                      >
+                        {tx.tipo === 'entrada' ? '+' : '-'} {formatCurrency(tx.valor)}
+                      </td>
+                      <td
+                        className="py-3 px-2 text-center whitespace-nowrap"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="flex items-center justify-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="xs"
+                            icon="visibility"
+                            title="Ver detalhes"
+                            onClick={() => setSelectedTxForDetail(tx)}
+                          />
+                          <Button
+                            variant="ghost"
+                            size="xs"
+                            icon="delete"
+                            className="text-gray-400 hover:text-red-600 hover:bg-red-50"
+                            title="Excluir lançamento"
+                            onClick={() => {
+                              if (confirm(`Excluir lançamento "${tx.descricao}" no valor de ${formatCurrency(tx.valor)}?`)) {
+                                deleteTransaction(tx.id);
+                              }
+                            }}
+                          />
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile / Compact View: Adaptive Card Rows with zero horizontal drag & swipe-actions */}
+            <div className="md:hidden divide-y divide-gray-100">
+              <div className="bg-amber-50/60 px-4 py-1.5 border-b border-amber-100 text-[10px] text-amber-800 flex items-center justify-between">
+                <span className="flex items-center gap-1 font-medium">
+                  <span className="material-symbols-outlined text-[13px]">swipe_left</span>
+                  Deslize o item para a esquerda para ações rápidas
+                </span>
+                <span className="text-[9px] font-mono text-amber-600 font-bold uppercase tracking-wider">Touch</span>
+              </div>
+
+              {paginatedTransactions.map((tx) => (
+                <SwipeableRow
+                  key={tx.id}
+                  onClick={() => setSelectedTxForDetail(tx)}
+                  actions={[
+                    {
+                      label: 'Detalhes',
+                      icon: 'visibility',
+                      colorClass: 'bg-gray-800 text-white',
+                      onClick: () => setSelectedTxForDetail(tx),
+                    },
+                    {
+                      label: 'Excluir',
+                      icon: 'delete',
+                      colorClass: 'bg-red-600 text-white',
+                      onClick: () => {
+                        if (confirm(`Excluir lançamento "${tx.descricao}" no valor de ${formatCurrency(tx.valor)}?`)) {
+                          deleteTransaction(tx.id);
+                        }
+                      },
+                    },
+                  ]}
+                >
+                  <div className="p-4 flex flex-col gap-2 hover:bg-gray-50/80 active:bg-gray-100 transition-colors cursor-pointer">
+                    {/* Top: StatusBadge + Data + Valor */}
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <StatusBadge status={tx.tipo} size="xs" />
+                        <span className="text-[11px] text-gray-500 font-mono">{tx.data}</span>
+                      </div>
+                      <span
+                        className={`text-sm font-black whitespace-nowrap tabular-nums ${
+                          tx.tipo === 'entrada' ? 'text-[#2F9E44]' : 'text-[#E03131]'
+                        }`}
+                      >
+                        {tx.tipo === 'entrada' ? '+' : '-'} {formatCurrency(tx.valor)}
                       </span>
-                    </td>
-                    <td className="py-3 px-4 whitespace-nowrap text-gray-600 font-medium">
-                      {tx.responsavel}
-                    </td>
-                    <td className="py-3 px-4 whitespace-nowrap text-gray-500 text-[11px]">
-                      {tx.formaPagamento}
-                    </td>
-                    <td
-                      className={`py-3 px-4 text-right font-extrabold whitespace-nowrap tabular-nums ${
-                        tx.tipo === 'entrada' ? 'text-[#2F9E44]' : 'text-[#E03131]'
-                      }`}
-                    >
-                      {tx.tipo === 'entrada' ? '+' : '-'} {formatCurrency(tx.valor)}
-                    </td>
-                    <td
-                      className="py-3 px-4 text-center whitespace-nowrap"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <div className="flex items-center justify-center gap-1">
+                    </div>
+
+                    {/* Middle: Descrição + Favorecido */}
+                    <div>
+                      <h4 className="text-xs font-bold text-[#010102] leading-snug">
+                        {tx.descricao}
+                      </h4>
+                      {tx.clienteFornecedor && (
+                        <p className="text-[11px] text-gray-600 mt-0.5 flex items-center gap-1">
+                          <span className="material-symbols-outlined text-[13px] text-gray-400">person</span>
+                          {tx.clienteFornecedor}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Bottom: Categoria + Pagamento + Actions */}
+                    <div className="flex items-center justify-between pt-1 border-t border-gray-100 gap-2 mt-1">
+                      <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                        <span className="bg-gray-100 px-2 py-0.5 rounded text-gray-700 text-[10px] font-bold uppercase tracking-wider border border-gray-200">
+                          {tx.categoria}
+                        </span>
+                        <span className="text-[10px] text-gray-400">
+                          {tx.formaPagamento}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
                         <Button
                           variant="ghost"
                           size="xs"
@@ -397,12 +584,12 @@ export const LancamentosView: React.FC = () => {
                           }}
                         />
                       </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                    </div>
+                  </div>
+                </SwipeableRow>
+              ))}
+            </div>
+          </>
         )}
 
         <Pagination

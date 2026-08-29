@@ -76,7 +76,7 @@ export const StatCard: React.FC<StatCardProps> = ({
     <div
       onClick={onClick}
       className={`
-        rounded-xl border p-5 transition-all
+        rounded-xl border p-3.5 sm:p-5 transition-all
         ${isDark ? 'bg-[#010102] text-white' : 'bg-white text-[#010102]'}
         ${currentVariant.border}
         ${onClick ? 'cursor-pointer hover:shadow-md hover:border-[#835400]/40' : 'shadow-xs'}
@@ -84,9 +84,9 @@ export const StatCard: React.FC<StatCardProps> = ({
         ${className}
       `.trim()}
     >
-      <div className="flex items-center justify-between gap-2 mb-3">
+      <div className="flex items-center justify-between gap-1.5 mb-2 sm:mb-3">
         <span
-          className={`text-[11px] font-bold uppercase tracking-wider truncate ${
+          className={`text-[10px] sm:text-[11px] font-bold uppercase tracking-wider truncate ${
             isDark ? 'text-gray-400' : 'text-[#77767B]'
           }`}
         >
@@ -94,9 +94,9 @@ export const StatCard: React.FC<StatCardProps> = ({
         </span>
         {icon && (
           <div
-            className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${currentVariant.iconBg}`}
+            className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center shrink-0 ${currentVariant.iconBg}`}
           >
-            <span className={`material-symbols-outlined text-[18px] ${currentVariant.iconColor}`}>
+            <span className={`material-symbols-outlined text-[16px] sm:text-[18px] ${currentVariant.iconColor}`}>
               {icon}
             </span>
           </div>
@@ -105,7 +105,7 @@ export const StatCard: React.FC<StatCardProps> = ({
 
       <div className="min-w-0">
         <p
-          className={`text-xl sm:text-2xl font-extrabold tracking-tight truncate tabular-nums ${
+          className={`text-base sm:text-2xl font-extrabold tracking-tight truncate tabular-nums ${
             isDark ? 'text-white' : currentVariant.valueColor
           }`}
           title={String(value)}

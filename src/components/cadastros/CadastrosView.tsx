@@ -141,7 +141,7 @@ export const CadastrosView: React.FC = () => {
   const clientesList = filteredPartners.filter((p) => p.tipo === 'cliente' || p.tipo === 'ambos');
 
   return (
-    <div className="flex-1 p-6 lg:p-10 max-w-[1440px] mx-auto w-full flex flex-col gap-6 animate-in fade-in duration-200">
+    <div className="flex-1 p-4 sm:p-6 lg:p-8 max-w-[1440px] mx-auto w-full flex flex-col gap-6 animate-in fade-in duration-200">
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div className="min-w-0">
@@ -188,7 +188,7 @@ export const CadastrosView: React.FC = () => {
       </div>
 
       {/* Navigation Sub-Tabs */}
-      <div className="flex border-b border-[#DEE2E6] gap-2 overflow-x-auto pb-0.5">
+      <div className="flex border-b border-[#DEE2E6] gap-2 overflow-x-auto pb-0.5 scrollbar-none flex-nowrap sm:flex-wrap">
         <button
           onClick={() => {
             setActiveSubTab('funcionarios');
@@ -289,100 +289,192 @@ export const CadastrosView: React.FC = () => {
                 }}
               />
             ) : (
-              <div className="overflow-x-auto w-full">
-                <table className="w-full text-left border-collapse min-w-[700px]">
-                  <thead className="bg-gray-50/80 border-b border-[#DEE2E6] text-xs font-bold text-gray-500">
-                    <tr>
-                      <th className="py-3 px-4 whitespace-nowrap">Nome</th>
-                      <th className="py-3 px-4 whitespace-nowrap">Documento</th>
-                      <th className="py-3 px-4 whitespace-nowrap">Cargo</th>
-                      <th className="py-3 px-4 whitespace-nowrap">Telefone</th>
-                      <th className="py-3 px-4 whitespace-nowrap">Tags</th>
-                      <th className="py-3 px-4 whitespace-nowrap">Status</th>
-                      <th className="py-3 px-4 text-center whitespace-nowrap">Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody className="text-xs divide-y divide-[#DEE2E6]">
-                    {paginatedEmployees.map((emp) => (
-                      <tr key={emp.id} className="hover:bg-gray-50/80 transition-colors">
-                        <td className="py-3 px-4 font-bold text-[#010102] max-w-[200px]">
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            <div className="w-8 h-8 rounded-full bg-[#835400] text-white flex items-center justify-center font-bold text-xs shrink-0">
-                              {emp.avatarInitials || emp.nome.slice(0, 2).toUpperCase()}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              <div className="truncate" title={emp.nome}>
-                                {emp.nome}
+              <div className="w-full">
+                {/* Desktop / Tablet Table */}
+                <div className="hidden md:block w-full">
+                  <table className="w-full text-left border-collapse table-fixed">
+                    <thead className="bg-gray-50/80 border-b border-[#DEE2E6] text-xs font-bold text-gray-500">
+                      <tr>
+                        <th className="py-3 px-4 w-[28%]">Nome</th>
+                        <th className="py-3 px-4 w-[16%]">Documento</th>
+                        <th className="py-3 px-4 w-[18%]">Cargo</th>
+                        <th className="py-3 px-4 w-[16%]">Telefone</th>
+                        <th className="py-3 px-4 w-[12%]">Tags</th>
+                        <th className="py-3 px-4 w-[10%]">Status</th>
+                        <th className="py-3 px-4 w-20 text-center">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody className="text-xs divide-y divide-[#DEE2E6]">
+                      {paginatedEmployees.map((emp) => (
+                        <tr key={emp.id} className="hover:bg-gray-50/80 transition-colors">
+                          <td className="py-3 px-4 font-bold text-[#010102] min-w-0">
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <div className="w-8 h-8 rounded-full bg-[#835400] text-white flex items-center justify-center font-bold text-xs shrink-0">
+                                {emp.avatarInitials || emp.nome.slice(0, 2).toUpperCase()}
                               </div>
-                              {emp.email && (
-                                <div className="text-[11px] text-gray-400 font-normal truncate" title={emp.email}>
-                                  {emp.email}
+                              <div className="min-w-0 flex-1">
+                                <div className="truncate" title={emp.nome}>
+                                  {emp.nome}
                                 </div>
-                              )}
+                                {emp.email && (
+                                  <div className="text-[11px] text-gray-400 font-normal truncate" title={emp.email}>
+                                    {emp.email}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+                          <td className="py-3 px-4 font-mono text-gray-600 truncate text-[11px]">
+                            {emp.documento}
+                          </td>
+                          <td className="py-3 px-4 text-gray-800 font-semibold truncate" title={emp.cargo}>
+                            {emp.cargo}
+                          </td>
+                          <td className="py-3 px-4 font-mono text-gray-600 truncate text-[11px]">
+                            {emp.telefone}
+                          </td>
+                          <td className="py-3 px-4">
+                            {emp.isMotorista && (
+                              <span className="inline-flex items-center gap-1 bg-amber-50 text-[#835400] px-2 py-0.5 rounded-full text-[10px] font-bold border border-amber-200">
+                                <span className="material-symbols-outlined text-[12px]">local_shipping</span>
+                                Motorista
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4">
+                            <button
+                              onClick={() => toggleEmployeeStatus(emp.id)}
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold transition-all cursor-pointer ${
+                                emp.status === 'ativo'
+                                  ? 'bg-[#D3F9D8] text-[#2B8A3E]'
+                                  : 'bg-gray-100 text-gray-500'
+                              }`}
+                            >
+                              <span
+                                className={`w-1.5 h-1.5 rounded-full ${
+                                  emp.status === 'ativo' ? 'bg-[#2B8A3E]' : 'bg-gray-400'
+                                }`}
+                              />
+                              {emp.status === 'ativo' ? 'Ativo' : 'Inativo'}
+                            </button>
+                          </td>
+                          <td className="py-3 px-4 text-center">
+                            <div className="flex items-center justify-center gap-1">
+                              <Button
+                                variant="ghost"
+                                size="xs"
+                                icon="edit"
+                                title="Editar Colaborador"
+                                onClick={() => handleEdit(emp)}
+                              />
+                              <Button
+                                variant="ghost"
+                                size="xs"
+                                icon="delete"
+                                className="text-gray-400 hover:text-red-600 hover:bg-red-50"
+                                title="Excluir Colaborador"
+                                onClick={() => {
+                                  if (confirm(`Deseja excluir o registro de "${emp.nome}"?`)) {
+                                    deleteEmployee(emp.id);
+                                  }
+                                }}
+                              />
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Mobile Cards */}
+                <div className="md:hidden divide-y divide-[#DEE2E6]">
+                  {paginatedEmployees.map((emp) => (
+                    <div key={emp.id} className="p-4 space-y-3 bg-white">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="w-9 h-9 rounded-full bg-[#835400] text-white flex items-center justify-center font-bold text-xs shrink-0">
+                            {emp.avatarInitials || emp.nome.slice(0, 2).toUpperCase()}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="font-bold text-sm text-[#010102] truncate" title={emp.nome}>
+                              {emp.nome}
+                            </div>
+                            <div className="text-xs text-gray-500 truncate font-semibold">
+                              {emp.cargo}
                             </div>
                           </div>
-                        </td>
-                        <td className="py-3 px-4 font-mono text-gray-600 whitespace-nowrap text-[11px]">
-                          {emp.documento}
-                        </td>
-                        <td className="py-3 px-4 text-gray-800 font-semibold whitespace-nowrap max-w-[150px] truncate" title={emp.cargo}>
-                          {emp.cargo}
-                        </td>
-                        <td className="py-3 px-4 font-mono text-gray-600 whitespace-nowrap text-[11px]">
-                          {emp.telefone}
-                        </td>
-                        <td className="py-3 px-4 whitespace-nowrap">
+                        </div>
+
+                        <button
+                          onClick={() => toggleEmployeeStatus(emp.id)}
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${
+                            emp.status === 'ativo'
+                              ? 'bg-[#D3F9D8] text-[#2B8A3E]'
+                              : 'bg-gray-100 text-gray-500'
+                          }`}
+                        >
+                          <span
+                            className={`w-1.5 h-1.5 rounded-full ${
+                              emp.status === 'ativo' ? 'bg-[#2B8A3E]' : 'bg-gray-400'
+                            }`}
+                          />
+                          {emp.status === 'ativo' ? 'Ativo' : 'Inativo'}
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 text-xs bg-gray-50 p-2.5 rounded-xl border border-gray-100">
+                        <div>
+                          <span className="text-[10px] text-gray-400 uppercase font-bold block">Documento</span>
+                          <span className="font-mono text-[11px] text-gray-700">{emp.documento || '—'}</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-gray-400 uppercase font-bold block">Telefone</span>
+                          <span className="font-mono text-[11px] text-gray-700">{emp.telefone || '—'}</span>
+                        </div>
+                        {emp.email && (
+                          <div className="col-span-2 truncate">
+                            <span className="text-[10px] text-gray-400 uppercase font-bold block">E-mail</span>
+                            <span className="text-[11px] text-gray-700 truncate block">{emp.email}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center justify-between pt-1">
+                        <div>
                           {emp.isMotorista && (
-                            <span className="inline-flex items-center gap-1 bg-amber-50 text-[#835400] px-2.5 py-0.5 rounded-full text-[11px] font-bold border border-amber-200">
-                              <span className="material-symbols-outlined text-[13px]">local_shipping</span>
+                            <span className="inline-flex items-center gap-1 bg-amber-50 text-[#835400] px-2 py-0.5 rounded-full text-[10px] font-bold border border-amber-200">
+                              <span className="material-symbols-outlined text-[12px]">local_shipping</span>
                               Motorista
                             </span>
                           )}
-                        </td>
-                        <td className="py-3 px-4 whitespace-nowrap">
-                          <button
-                            onClick={() => toggleEmployeeStatus(emp.id)}
-                            className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold transition-all cursor-pointer ${
-                              emp.status === 'ativo'
-                                ? 'bg-[#D3F9D8] text-[#2B8A3E]'
-                                : 'bg-gray-100 text-gray-500'
-                            }`}
+                        </div>
+
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            icon="edit"
+                            onClick={() => handleEdit(emp)}
                           >
-                            <span
-                              className={`w-1.5 h-1.5 rounded-full ${
-                                emp.status === 'ativo' ? 'bg-[#2B8A3E]' : 'bg-gray-400'
-                              }`}
-                            />
-                            {emp.status === 'ativo' ? 'Ativo' : 'Inativo'}
-                          </button>
-                        </td>
-                        <td className="py-3 px-4 text-center whitespace-nowrap">
-                          <div className="flex items-center justify-center gap-1">
-                            <Button
-                              variant="ghost"
-                              size="xs"
-                              icon="edit"
-                              title="Editar Colaborador"
-                              onClick={() => handleEdit(emp)}
-                            />
-                            <Button
-                              variant="ghost"
-                              size="xs"
-                              icon="delete"
-                              className="text-gray-400 hover:text-red-600 hover:bg-red-50"
-                              title="Excluir Colaborador"
-                              onClick={() => {
-                                if (confirm(`Deseja excluir o registro de "${emp.nome}"?`)) {
-                                  deleteEmployee(emp.id);
-                                }
-                              }}
-                            />
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                            Editar
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            icon="delete"
+                            className="text-gray-400 hover:text-red-600 hover:bg-red-50"
+                            onClick={() => {
+                              if (confirm(`Deseja excluir o registro de "${emp.nome}"?`)) {
+                                deleteEmployee(emp.id);
+                              }
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 

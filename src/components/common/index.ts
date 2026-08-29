@@ -32,3 +32,4 @@ export { ErrorDiagnosticsModal } from './ErrorDiagnosticsModal';
 export { PartnerAutocomplete } from './PartnerAutocomplete';
 export type { PartnerAutocompleteProps } from './PartnerAutocomplete';
 
+export { SwipeableRow } from './SwipeableRow';

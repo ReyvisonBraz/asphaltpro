@@ -204,6 +204,7 @@ export const CatalogoItensDrawer: React.FC<CatalogoItensDrawerProps> = ({
                     </label>
                     <input
                       type="number"
+                      inputMode="decimal"
                       step="0.01"
                       min="0"
                       required

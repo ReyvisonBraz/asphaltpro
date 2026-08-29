@@ -101,7 +101,7 @@ export const RelatoriosView: React.FC = () => {
     .reduce((s, a) => s + a.valor, 0);
 
   return (
-    <div className="flex-1 p-6 lg:p-10 max-w-[1440px] mx-auto w-full flex flex-col gap-6 sm:gap-8 animate-in fade-in duration-200">
+    <div className="flex-1 p-4 sm:p-6 lg:p-8 max-w-[1440px] mx-auto w-full flex flex-col gap-6 sm:gap-8 animate-in fade-in duration-200">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -114,7 +114,7 @@ export const RelatoriosView: React.FC = () => {
         </div>
 
         {/* Top Controls */}
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           {/* Segmented period */}
           <div className="flex bg-gray-100 p-1 rounded-xl border border-gray-200">
             {(['diario', 'semanal', 'mensal'] as const).map((p) => (
@@ -132,7 +132,7 @@ export const RelatoriosView: React.FC = () => {
             ))}
           </div>
 
-          <div className="w-44">
+          <div className="w-full sm:w-44">
             <Select
               value={selectedMonth}
               onChange={(e) => setSelectedMonth(e.target.value)}
@@ -150,6 +150,7 @@ export const RelatoriosView: React.FC = () => {
             icon="download"
             size="sm"
             onClick={exportToCSV}
+            className="w-full sm:w-auto"
           >
             Exportar Relatório CSV
           </Button>
@@ -211,7 +212,7 @@ export const RelatoriosView: React.FC = () => {
           </div>
 
           {/* Bar Visualization */}
-          <div className="h-64 flex items-end justify-between gap-4 px-2 pt-6 pb-2">
+          <div className="h-64 flex items-end justify-between gap-2 sm:gap-4 px-1 sm:px-2 pt-6 pb-2">
             {[
               { month: 'Jun', in: 65, out: 45 },
               { month: 'Jul', in: 78, out: 52 },
@@ -222,9 +223,9 @@ export const RelatoriosView: React.FC = () => {
             ].map((col) => (
               <div
                 key={col.month}
-                className="flex-1 flex flex-col items-center gap-2 h-full justify-end"
+                className="flex-1 flex flex-col items-center gap-2 h-full justify-end min-w-0"
               >
-                <div className="w-full max-w-[48px] flex items-end justify-center gap-1.5 h-full">
+                <div className="w-full max-w-[48px] flex items-end justify-center gap-1 sm:gap-1.5 h-full">
                   {/* In Bar */}
                   <div
                     style={{ height: `${(col.in / 130) * 100}%` }}

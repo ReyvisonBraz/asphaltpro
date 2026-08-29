@@ -87,7 +87,7 @@ export const DashboardView: React.FC = () => {
   }, [chartPeriod, saldoAtual]);
 
   return (
-    <div className="flex-1 p-6 lg:p-10 max-w-[1440px] mx-auto w-full flex flex-col gap-6 sm:gap-8 animate-in fade-in duration-200">
+    <div className="flex-1 p-4 sm:p-6 lg:p-8 max-w-[1440px] mx-auto w-full flex flex-col gap-6 sm:gap-8 animate-in fade-in duration-200">
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="min-w-0">
@@ -156,8 +156,8 @@ export const DashboardView: React.FC = () => {
         </div>
       )}
 
-      {/* Bento Grid: 4 Metric Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* Bento Grid: 4 Metric Cards (2x2 on mobile, 4 on desktop) */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
         <StatCard
           title="Saldo Atual em Caixa"
           value={permissions.canViewBalances ? formatCurrency(saldoAtual) : '•••••••• (Sigiloso)'}
@@ -330,14 +330,15 @@ export const DashboardView: React.FC = () => {
             </Button>
           </div>
 
-          <div className="overflow-x-auto w-full">
-            <table className="w-full text-left border-collapse min-w-[480px]">
+          {/* Desktop/Tablet View: Fluid Table without fixed min-w */}
+          <div className="hidden sm:block w-full">
+            <table className="w-full text-left border-collapse table-fixed">
               <thead>
                 <tr className="bg-gray-50/80 border-b border-[#DEE2E6] text-xs font-bold text-gray-500">
-                  <th className="py-2.5 px-3">Data</th>
+                  <th className="py-2.5 px-3 w-24">Data</th>
                   <th className="py-2.5 px-3">Descrição</th>
-                  <th className="py-2.5 px-3">Categoria</th>
-                  <th className="py-2.5 px-3 text-right">Valor</th>
+                  <th className="py-2.5 px-3 w-28">Categoria</th>
+                  <th className="py-2.5 px-3 w-32 text-right">Valor</th>
                 </tr>
               </thead>
               <tbody className="text-xs divide-y divide-[#DEE2E6]">
@@ -350,11 +351,11 @@ export const DashboardView: React.FC = () => {
                     <td className="py-3 px-3 whitespace-nowrap text-gray-500 font-mono text-[11px]">
                       {tx.data}
                     </td>
-                    <td className="py-3 px-3 font-bold text-[#010102] max-w-[200px] truncate" title={tx.descricao}>
+                    <td className="py-3 px-3 font-bold text-[#010102] truncate" title={tx.descricao}>
                       {tx.descricao}
                     </td>
-                    <td className="py-3 px-3 whitespace-nowrap">
-                      <span className="bg-gray-100 px-2 py-0.5 rounded text-gray-700 text-[10px] font-bold uppercase tracking-wider border border-gray-200 inline-block truncate max-w-[130px]">
+                    <td className="py-3 px-3">
+                      <span className="bg-gray-100 px-2 py-0.5 rounded text-gray-700 text-[10px] font-bold uppercase tracking-wider border border-gray-200 inline-block truncate max-w-full">
                         {tx.categoria}
                       </span>
                     </td>
@@ -369,6 +370,35 @@ export const DashboardView: React.FC = () => {
                 ))}
               </tbody>
             </table>
+          </div>
+
+          {/* Mobile View: High-density card items with zero horizontal scroll */}
+          <div className="sm:hidden flex flex-col divide-y divide-gray-100">
+            {recentTransactions.map((tx) => (
+              <div
+                key={tx.id}
+                onClick={() => setCurrentView('lancamentos')}
+                className="py-3 flex items-center justify-between gap-3 cursor-pointer hover:bg-gray-50 active:bg-gray-100 rounded-lg px-1 transition-colors"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-bold text-[#010102] truncate">{tx.descricao}</p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="text-[10px] text-gray-500 font-mono">{tx.data}</span>
+                    <span className="text-gray-300">•</span>
+                    <span className="text-[10px] text-gray-600 truncate bg-gray-100 px-1.5 py-0.5 rounded font-medium">
+                      {tx.categoria}
+                    </span>
+                  </div>
+                </div>
+                <span
+                  className={`text-xs font-extrabold whitespace-nowrap tabular-nums shrink-0 ${
+                    tx.tipo === 'entrada' ? 'text-[#2F9E44]' : 'text-[#E03131]'
+                  }`}
+                >
+                  {tx.tipo === 'entrada' ? '+' : '-'} {formatCurrency(tx.valor)}
+                </span>
+              </div>
+            ))}
           </div>
         </div>
 

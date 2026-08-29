@@ -216,20 +216,21 @@ export const UsuariosViewTab: React.FC = () => {
 
         {/* Permissions Matrix Drawer (Collapsible) */}
         {showMatrix && (
-          <div className="p-5 bg-gray-50 border-b border-[#E5E2E1] animate-in slide-in-from-top-2 duration-150">
+          <div className="p-4 sm:p-5 bg-gray-50 border-b border-[#E5E2E1] animate-in slide-in-from-top-2 duration-150">
             <h4 className="text-xs font-bold text-[#010102] uppercase tracking-wider mb-3 flex items-center gap-1.5">
               <span className="material-symbols-outlined text-sm text-[#835400]">table_view</span>
               Matriz de Permissões por Perfil de Acesso
             </h4>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse bg-white rounded-xl overflow-hidden border border-gray-200">
+            {/* Desktop Table */}
+            <div className="hidden md:block w-full">
+              <table className="w-full text-left text-xs border-collapse bg-white rounded-xl overflow-hidden border border-gray-200 table-fixed">
                 <thead>
                   <tr className="bg-gray-100 text-gray-700 font-bold border-b border-gray-200">
                     <th className="p-3">Módulo / Ação</th>
-                    <th className="p-3 text-center text-amber-900 bg-amber-50/50">Diretoria (Admin)</th>
-                    <th className="p-3 text-center text-blue-900 bg-blue-50/50">Financeiro</th>
-                    <th className="p-3 text-center text-emerald-900 bg-emerald-50/50">Comercial / Vendas</th>
-                    <th className="p-3 text-center text-orange-900 bg-orange-50/50">Operador Balança</th>
+                    <th className="p-3 text-center text-amber-900 bg-amber-50/50 w-36">Diretoria (Admin)</th>
+                    <th className="p-3 text-center text-blue-900 bg-blue-50/50 w-36">Financeiro</th>
+                    <th className="p-3 text-center text-emerald-900 bg-emerald-50/50 w-36">Comercial / Vendas</th>
+                    <th className="p-3 text-center text-orange-900 bg-orange-50/50 w-36">Operador Balança</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 text-[11px]">
@@ -278,146 +279,295 @@ export const UsuariosViewTab: React.FC = () => {
                 </tbody>
               </table>
             </div>
+
+            {/* Mobile Matrix Cards */}
+            <div className="md:hidden space-y-3">
+              {[
+                { module: 'Dashboard & Indicadores Operacionais', roles: { admin: '✓ Liberado', financeiro: '✓ Liberado', comercial: '✓ Liberado', operador: '✓ Liberado' } },
+                { module: 'Visualizar Saldo Bancário & DRE Sigiloso', roles: { admin: '✓ Liberado', financeiro: '✓ Liberado', comercial: '✗ Oculto', operador: '✗ Oculto' } },
+                { module: 'Lançamentos de Despesas & Receitas', roles: { admin: '✓ Total', financeiro: '✓ Total', comercial: '✗ Somente Leitura', operador: '✓ Despesas Pista' } },
+                { module: 'Contas a Pagar & Receber (Baixas)', roles: { admin: '✓ Total', financeiro: '✓ Total', comercial: '✗ Sem Acesso', operador: '✗ Sem Acesso' } },
+                { module: 'Calculadora & Emissão de Orçamentos A4', roles: { admin: '✓ Total', financeiro: '✓ Total', comercial: '✓ Total (Vendas)', operador: '✗ Sem Acesso' } },
+                { module: 'Configurações Mestres, Backup & Usuários', roles: { admin: '✓ Total', financeiro: '✗ Bloqueado', comercial: '✗ Bloqueado', operador: '✗ Bloqueado' } },
+              ].map((item, idx) => (
+                <div key={idx} className="bg-white p-3 rounded-xl border border-gray-200 space-y-2">
+                  <div className="font-bold text-xs text-gray-800">{item.module}</div>
+                  <div className="grid grid-cols-2 gap-2 text-[11px]">
+                    <div className="bg-amber-50/70 p-1.5 rounded">
+                      <span className="text-[10px] block text-amber-800 font-bold">Admin / Diretoria</span>
+                      <span className="font-semibold text-emerald-700">{item.roles.admin}</span>
+                    </div>
+                    <div className="bg-blue-50/70 p-1.5 rounded">
+                      <span className="text-[10px] block text-blue-800 font-bold">Financeiro</span>
+                      <span className="font-semibold text-emerald-700">{item.roles.financeiro}</span>
+                    </div>
+                    <div className="bg-emerald-50/70 p-1.5 rounded">
+                      <span className="text-[10px] block text-emerald-800 font-bold">Comercial</span>
+                      <span className={item.roles.comercial.startsWith('✓') ? 'font-semibold text-emerald-700' : 'text-gray-500'}>
+                        {item.roles.comercial}
+                      </span>
+                    </div>
+                    <div className="bg-orange-50/70 p-1.5 rounded">
+                      <span className="text-[10px] block text-orange-800 font-bold">Operador</span>
+                      <span className={item.roles.operador.startsWith('✓') ? 'font-semibold text-orange-700' : 'text-gray-500'}>
+                        {item.roles.operador}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
-        {/* Users Table */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead>
-              <tr className="bg-gray-50/75 text-gray-600 border-b border-[#E5E2E1] font-bold">
-                <th className="py-3 px-4">Usuário</th>
-                <th className="py-3 px-4">E-mail & Telefone</th>
-                <th className="py-3 px-4">Perfil & Regra</th>
-                <th className="py-3 px-4">Departamento / Cargo</th>
-                <th className="py-3 px-4 text-center">Status</th>
-                <th className="py-3 px-4 text-right">Ações</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {systemUsers.map((u) => {
-                const isCurrentActive = currentUser.id === u.id || currentUser.email === u.email;
-                const roleMeta = ROLE_INFO[u.role] || ROLE_INFO.operador;
+        {/* Users Table / List */}
+        <div>
+          {/* Desktop Table */}
+          <div className="hidden md:block w-full">
+            <table className="w-full text-left text-xs border-collapse table-fixed">
+              <thead>
+                <tr className="bg-gray-50/75 text-gray-600 border-b border-[#E5E2E1] font-bold">
+                  <th className="py-3 px-4 w-[28%]">Usuário</th>
+                  <th className="py-3 px-4 w-[24%]">E-mail & Telefone</th>
+                  <th className="py-3 px-4 w-[18%]">Perfil & Regra</th>
+                  <th className="py-3 px-4 w-[18%]">Departamento / Cargo</th>
+                  <th className="py-3 px-4 w-[12%] text-center">Status</th>
+                  <th className="py-3 px-4 w-28 text-right">Ações</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {systemUsers.map((u) => {
+                  const isCurrentActive = currentUser.id === u.id || currentUser.email === u.email;
+                  const roleMeta = ROLE_INFO[u.role] || ROLE_INFO.operador;
 
-                return (
-                  <tr
-                    key={u.id}
-                    className={`hover:bg-gray-50/70 transition-colors ${
-                      isCurrentActive ? 'bg-amber-50/40' : ''
-                    }`}
-                  >
-                    <td className="py-3.5 px-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full overflow-hidden shrink-0 border border-gray-300 relative">
-                          <img
-                            src={u.avatarUrl}
-                            alt={u.name}
-                            className="w-full h-full object-cover"
-                          />
-                          {isCurrentActive && (
-                            <span
-                              className="absolute bottom-0 right-0 w-3 h-3 bg-[#2F9E44] border-2 border-white rounded-full"
-                              title="Usuário Atual em Sessão"
+                  return (
+                    <tr
+                      key={u.id}
+                      className={`hover:bg-gray-50/70 transition-colors ${
+                        isCurrentActive ? 'bg-amber-50/40' : ''
+                      }`}
+                    >
+                      <td className="py-3.5 px-4 min-w-0">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-10 h-10 rounded-full overflow-hidden shrink-0 border border-gray-300 relative">
+                            <img
+                              src={u.avatarUrl}
+                              alt={u.name}
+                              className="w-full h-full object-cover"
                             />
-                          )}
-                        </div>
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-[#010102] text-sm truncate">
-                              {u.name}
-                            </span>
                             {isCurrentActive && (
-                              <span className="px-1.5 py-0.5 bg-amber-200/70 text-amber-900 text-[10px] font-bold rounded">
-                                VOCÊ
-                              </span>
+                              <span
+                                className="absolute bottom-0 right-0 w-3 h-3 bg-[#2F9E44] border-2 border-white rounded-full"
+                                title="Usuário Atual em Sessão"
+                              />
                             )}
                           </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-[#010102] text-sm truncate">
+                                {u.name}
+                              </span>
+                              {isCurrentActive && (
+                                <span className="px-1.5 py-0.5 bg-amber-200/70 text-amber-900 text-[10px] font-bold rounded shrink-0">
+                                  VOCÊ
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[11px] text-gray-500 block truncate">
+                              Criado em: {new Date(u.createdAt).toLocaleDateString('pt-BR')}
+                            </span>
+                          </div>
+                        </div>
+                      </td>
+
+                      <td className="py-3.5 px-4 min-w-0">
+                        <div className="space-y-0.5 min-w-0">
+                          <span className="text-gray-900 font-medium block truncate">
+                            {u.email}
+                          </span>
                           <span className="text-[11px] text-gray-500 block truncate">
-                            Criado em: {new Date(u.createdAt).toLocaleDateString('pt-BR')}
+                            {u.phone || 'Sem telefone'}
                           </span>
                         </div>
-                      </div>
-                    </td>
+                      </td>
 
-                    <td className="py-3.5 px-4">
-                      <div className="space-y-0.5">
-                        <span className="text-gray-900 font-medium block truncate">
+                      <td className="py-3.5 px-4">
+                        <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-bold shrink-0 shadow-2xs ${roleMeta.badgeBg}`}>
+                          <span className="material-symbols-outlined text-[16px]">{roleMeta.icon}</span>
+                          <span>{roleMeta.label}</span>
+                        </div>
+                      </td>
+
+                      <td className="py-3.5 px-4 min-w-0">
+                        <div className="min-w-0">
+                          <span className="font-semibold text-gray-900 block truncate">{u.roleTitle}</span>
+                          <span className="text-[11px] text-gray-500 block truncate">{u.department}</span>
+                        </div>
+                      </td>
+
+                      <td className="py-3.5 px-4 text-center">
+                        <button
+                          onClick={() => toggleSystemUserStatus(u.id)}
+                          className={`px-2.5 py-1 rounded-full text-[11px] font-bold transition-all cursor-pointer ${
+                            u.status === 'ativo'
+                              ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
+                              : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                          }`}
+                          title="Clique para alternar Ativo / Inativo"
+                        >
+                          {u.status === 'ativo' ? '● Ativo' : '○ Inativo'}
+                        </button>
+                      </td>
+
+                      <td className="py-3.5 px-4 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          {!isCurrentActive && u.status === 'ativo' && (
+                            <button
+                              onClick={() => switchUser(u.id)}
+                              className="p-1.5 text-xs text-[#835400] hover:bg-amber-100 rounded-lg flex items-center gap-1 font-bold transition-colors"
+                              title="Entrar/Simular visão deste usuário"
+                            >
+                              <span className="material-symbols-outlined text-[18px]">login</span>
+                              <span className="hidden xl:inline">Alternar</span>
+                            </button>
+                          )}
+
+                          <button
+                            onClick={() => handleOpenEditModal(u)}
+                            className="p-1.5 text-gray-600 hover:text-black hover:bg-gray-100 rounded-lg transition-colors"
+                            title="Editar Usuário"
+                          >
+                            <span className="material-symbols-outlined text-[18px]">edit</span>
+                          </button>
+
+                          <button
+                            onClick={() => {
+                              if (confirm(`Deseja realmente remover o usuário ${u.name}?`)) {
+                                deleteSystemUser(u.id);
+                              }
+                            }}
+                            disabled={systemUsers.length <= 1}
+                            className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg disabled:opacity-30 transition-colors"
+                            title="Excluir Usuário"
+                          >
+                            <span className="material-symbols-outlined text-[18px]">delete</span>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile User Cards */}
+          <div className="md:hidden divide-y divide-gray-200">
+            {systemUsers.map((u) => {
+              const isCurrentActive = currentUser.id === u.id || currentUser.email === u.email;
+              const roleMeta = ROLE_INFO[u.role] || ROLE_INFO.operador;
+
+              return (
+                <div
+                  key={u.id}
+                  className={`p-4 space-y-3 ${isCurrentActive ? 'bg-amber-50/40' : 'bg-white'}`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-10 h-10 rounded-full overflow-hidden shrink-0 border border-gray-300 relative">
+                        <img
+                          src={u.avatarUrl}
+                          alt={u.name}
+                          className="w-full h-full object-cover"
+                        />
+                        {isCurrentActive && (
+                          <span
+                            className="absolute bottom-0 right-0 w-3 h-3 bg-[#2F9E44] border-2 border-white rounded-full"
+                            title="Usuário Atual"
+                          />
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-bold text-sm text-[#010102] truncate">
+                            {u.name}
+                          </span>
+                          {isCurrentActive && (
+                            <span className="px-1.5 py-0.5 bg-amber-200/70 text-amber-900 text-[10px] font-bold rounded">
+                              VOCÊ
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[11px] text-gray-500 block truncate">
                           {u.email}
                         </span>
-                        <span className="text-[11px] text-gray-500 block">
-                          {u.phone || 'Sem telefone'}
-                        </span>
                       </div>
-                    </td>
+                    </div>
 
-                    <td className="py-3.5 px-4">
-                      <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-bold shrink-0 shadow-2xs ${roleMeta.badgeBg}`}>
-                        <span className="material-symbols-outlined text-[16px]">{roleMeta.icon}</span>
-                        <span>{roleMeta.label}</span>
-                      </div>
-                    </td>
+                    <button
+                      onClick={() => toggleSystemUserStatus(u.id)}
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${
+                        u.status === 'ativo'
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : 'bg-gray-200 text-gray-600'
+                      }`}
+                    >
+                      {u.status === 'ativo' ? '● Ativo' : '○ Inativo'}
+                    </button>
+                  </div>
 
-                    <td className="py-3.5 px-4">
-                      <div>
-                        <span className="font-semibold text-gray-900 block truncate">{u.roleTitle}</span>
-                        <span className="text-[11px] text-gray-500 block truncate">{u.department}</span>
-                      </div>
-                    </td>
+                  <div className="flex items-center justify-between gap-2 text-xs bg-gray-50 p-2.5 rounded-xl border border-gray-100">
+                    <div className="min-w-0">
+                      <span className="font-semibold text-gray-800 block truncate">{u.roleTitle}</span>
+                      <span className="text-[11px] text-gray-500 block truncate">{u.department}</span>
+                    </div>
+                    <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border text-[11px] font-bold shrink-0 ${roleMeta.badgeBg}`}>
+                      <span className="material-symbols-outlined text-[14px]">{roleMeta.icon}</span>
+                      <span>{roleMeta.label}</span>
+                    </div>
+                  </div>
 
-                    <td className="py-3.5 px-4 text-center">
+                  <div className="flex items-center justify-between pt-1 text-xs">
+                    <span className="text-[11px] text-gray-400">
+                      Tel: {u.phone || 'N/I'}
+                    </span>
+                    <div className="flex items-center gap-1">
+                      {!isCurrentActive && u.status === 'ativo' && (
+                        <button
+                          onClick={() => switchUser(u.id)}
+                          className="px-2.5 py-1 text-xs bg-amber-100 hover:bg-amber-200 text-[#835400] font-bold rounded-lg flex items-center gap-1 transition-colors"
+                        >
+                          <span className="material-symbols-outlined text-[16px]">login</span>
+                          <span>Alternar</span>
+                        </button>
+                      )}
+
                       <button
-                        onClick={() => toggleSystemUserStatus(u.id)}
-                        className={`px-2.5 py-1 rounded-full text-[11px] font-bold transition-all cursor-pointer ${
-                          u.status === 'ativo'
-                            ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
-                            : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
-                        }`}
-                        title="Clique para alternar Ativo / Inativo"
+                        onClick={() => handleOpenEditModal(u)}
+                        className="p-1.5 text-gray-600 hover:text-black hover:bg-gray-100 rounded-lg transition-colors"
+                        title="Editar Usuário"
                       >
-                        {u.status === 'ativo' ? '● Ativo' : '○ Inativo'}
+                        <span className="material-symbols-outlined text-[18px]">edit</span>
                       </button>
-                    </td>
 
-                    <td className="py-3.5 px-4 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
-                        {!isCurrentActive && u.status === 'ativo' && (
-                          <button
-                            onClick={() => switchUser(u.id)}
-                            className="p-1.5 text-xs text-[#835400] hover:bg-amber-100 rounded-lg flex items-center gap-1 font-bold transition-colors"
-                            title="Entrar/Simular visão deste usuário"
-                          >
-                            <span className="material-symbols-outlined text-[18px]">login</span>
-                            <span className="hidden xl:inline">Alternar</span>
-                          </button>
-                        )}
-
-                        <button
-                          onClick={() => handleOpenEditModal(u)}
-                          className="p-1.5 text-gray-600 hover:text-black hover:bg-gray-100 rounded-lg transition-colors"
-                          title="Editar Usuário"
-                        >
-                          <span className="material-symbols-outlined text-[18px]">edit</span>
-                        </button>
-
-                        <button
-                          onClick={() => {
-                            if (confirm(`Deseja realmente remover o usuário ${u.name}?`)) {
-                              deleteSystemUser(u.id);
-                            }
-                          }}
-                          disabled={systemUsers.length <= 1}
-                          className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg disabled:opacity-30 transition-colors"
-                          title="Excluir Usuário"
-                        >
-                          <span className="material-symbols-outlined text-[18px]">delete</span>
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                      <button
+                        onClick={() => {
+                          if (confirm(`Deseja realmente remover o usuário ${u.name}?`)) {
+                            deleteSystemUser(u.id);
+                          }
+                        }}
+                        disabled={systemUsers.length <= 1}
+                        className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg disabled:opacity-30 transition-colors"
+                        title="Excluir Usuário"
+                      >
+                        <span className="material-symbols-outlined text-[18px]">delete</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
 

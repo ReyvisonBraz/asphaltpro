@@ -7,6 +7,7 @@ import React from 'react';
 import { AppProvider, useApp } from './context/AppContext';
 import { Sidebar } from './components/layout/Sidebar';
 import { TopHeader } from './components/layout/TopHeader';
+import { BottomNavigation } from './components/layout/BottomNavigation';
 import { DashboardView } from './components/dashboard/DashboardView';
 import { LancamentosView } from './components/lancamentos/LancamentosView';
 import { ContasView } from './components/contas/ContasView';
@@ -25,7 +26,13 @@ import { LoginView } from './components/auth/LoginView';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 
 const MainLayout: React.FC = () => {
-  const { isAuthenticated, currentView, isDiagnosticsOpen, setIsDiagnosticsOpen } = useApp();
+  const {
+    isAuthenticated,
+    currentView,
+    isDiagnosticsOpen,
+    setIsDiagnosticsOpen,
+    setIsMobileSidebarOpen,
+  } = useApp();
   useKeyboardShortcuts();
 
   if (!isAuthenticated) {
@@ -61,10 +68,13 @@ const MainLayout: React.FC = () => {
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 pl-0 lg:pl-64 max-w-full overflow-x-hidden transition-all">
         <TopHeader />
-        <main className="flex-1 flex flex-col w-full min-w-0">
+        <main className="flex-1 flex flex-col w-full min-w-0 pb-24 lg:pb-8">
           {renderCurrentView()}
         </main>
       </div>
+
+      {/* Mobile Bottom Navigation Bar & FAB */}
+      <BottomNavigation onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)} />
 
       {/* Global Modals & Overlays */}
       <NovoLancamentoModal />

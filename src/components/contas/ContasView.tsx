@@ -8,6 +8,7 @@ import {
   StatusBadge,
   Pagination,
   EmptyState,
+  SwipeableRow,
 } from '../common';
 
 export const ContasView: React.FC = () => {
@@ -55,7 +56,7 @@ export const ContasView: React.FC = () => {
   );
 
   return (
-    <div className="flex-1 p-6 lg:p-10 max-w-[1440px] mx-auto w-full flex flex-col gap-6 animate-in fade-in duration-200">
+    <div className="flex-1 p-4 sm:p-6 lg:p-8 max-w-[1440px] mx-auto w-full flex flex-col gap-6 animate-in fade-in duration-200">
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div className="min-w-0">
@@ -77,7 +78,7 @@ export const ContasView: React.FC = () => {
       </div>
 
       {/* Primary Tabs */}
-      <div className="flex border-b border-[#DEE2E6] gap-2 overflow-x-auto pb-0.5">
+      <div className="flex flex-wrap border-b border-[#DEE2E6] gap-2 pb-0.5">
         <button
           onClick={() => {
             setActiveTab('pagar');
@@ -138,7 +139,7 @@ export const ContasView: React.FC = () => {
 
       {/* Filter / Status Bar */}
       <div className="bg-white p-4 rounded-2xl border border-[#DEE2E6] shadow-xs flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none select-none">
           {(['todos', 'atrasado', 'pendente', 'pago'] as const).map((st) => {
             const labels = {
               todos: 'Todos',
@@ -153,7 +154,7 @@ export const ContasView: React.FC = () => {
                   setSelectedStatus(st);
                   setCurrentPage(1);
                 }}
-                className={`px-3 py-1.5 text-xs font-bold rounded-xl capitalize transition-all whitespace-nowrap cursor-pointer ${
+                className={`px-3.5 py-2 text-xs font-bold rounded-xl capitalize transition-all whitespace-nowrap cursor-pointer active:scale-95 ${
                   selectedStatus === st
                     ? 'bg-[#010102] text-white shadow-xs'
                     : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
@@ -202,55 +203,162 @@ export const ContasView: React.FC = () => {
             onAction={() => setIsNovaContaOpen(true)}
           />
         ) : (
-          <div className="overflow-x-auto w-full">
-            <table className="w-full text-left border-collapse min-w-[720px]">
-              <thead className="bg-gray-50/80 border-b border-[#DEE2E6] text-xs font-bold text-gray-500">
-                <tr>
-                  <th className="py-3 px-4">Descrição</th>
-                  <th className="py-3 px-4">{activeTab === 'pagar' ? 'Fornecedor' : 'Cliente'}</th>
-                  <th className="py-3 px-4 whitespace-nowrap">Parcela</th>
-                  <th className="py-3 px-4 whitespace-nowrap">Vencimento</th>
-                  <th className="py-3 px-4 whitespace-nowrap">Valor</th>
-                  <th className="py-3 px-4 whitespace-nowrap">Status</th>
-                  <th className="py-3 px-4 text-center whitespace-nowrap">Ações</th>
-                </tr>
-              </thead>
-              <tbody className="text-xs divide-y divide-[#DEE2E6]">
-                {paginatedAccounts.map((acc) => {
-                  const isPaid = acc.status === 'pago';
+          <>
+            {/* Desktop / Tablet View: Fluid Table with zero horizontal scrolling */}
+            <div className="hidden md:block w-full">
+              <table className="w-full text-left border-collapse table-fixed">
+                <thead className="bg-gray-50/80 border-b border-[#DEE2E6] text-xs font-bold text-gray-500">
+                  <tr>
+                    <th className="py-3 px-4">Descrição</th>
+                    <th className="py-3 px-3 w-44">{activeTab === 'pagar' ? 'Fornecedor' : 'Cliente'}</th>
+                    <th className="py-3 px-2 w-20 text-center whitespace-nowrap">Parcela</th>
+                    <th className="py-3 px-3 w-28 whitespace-nowrap">Vencimento</th>
+                    <th className="py-3 px-3 w-32 text-right whitespace-nowrap">Valor</th>
+                    <th className="py-3 px-2 w-28 text-center whitespace-nowrap">Status</th>
+                    <th className="py-3 px-3 w-36 text-center whitespace-nowrap">Ações</th>
+                  </tr>
+                </thead>
+                <tbody className="text-xs divide-y divide-[#DEE2E6]">
+                  {paginatedAccounts.map((acc) => {
+                    const isPaid = acc.status === 'pago';
 
-                  return (
-                    <tr key={acc.id} className="hover:bg-gray-50/80 transition-colors">
-                      <td className="py-3 px-4 font-bold text-[#010102] max-w-[200px] truncate" title={acc.descricao}>
-                        {acc.descricao}
-                      </td>
-                      <td className="py-3 px-4 text-gray-700 font-medium max-w-[160px] truncate" title={acc.fornecedorCliente}>
-                        {acc.fornecedorCliente}
-                      </td>
-                      <td className="py-3 px-4 whitespace-nowrap">
-                        <span className="bg-gray-100 px-2 py-0.5 rounded text-[11px] font-bold text-gray-700">
-                          {acc.parcela}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 whitespace-nowrap font-mono text-[11px]">
-                        <span
-                          className={`font-bold ${
-                            acc.status === 'atrasado'
-                              ? 'text-[#E03131] bg-red-50 px-2 py-0.5 rounded-md'
-                              : 'text-gray-700'
-                          }`}
-                        >
-                          {acc.vencimento}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 font-extrabold whitespace-nowrap text-[#010102] tabular-nums">
-                        {formatCurrency(acc.valor)}
-                      </td>
-                      <td className="py-3 px-4 whitespace-nowrap">
+                    return (
+                      <tr key={acc.id} className="hover:bg-gray-50/80 transition-colors">
+                        <td className="py-3 px-4 min-w-0">
+                          <span className="font-bold text-[#010102] block truncate" title={acc.descricao}>
+                            {acc.descricao}
+                          </span>
+                        </td>
+                        <td className="py-3 px-3 text-gray-700 font-medium">
+                          <span className="block truncate" title={acc.fornecedorCliente}>
+                            {acc.fornecedorCliente}
+                          </span>
+                        </td>
+                        <td className="py-3 px-2 text-center whitespace-nowrap">
+                          <span className="bg-gray-100 px-2 py-0.5 rounded text-[11px] font-bold text-gray-700">
+                            {acc.parcela}
+                          </span>
+                        </td>
+                        <td className="py-3 px-3 whitespace-nowrap font-mono text-[11px]">
+                          <span
+                            className={`font-bold ${
+                              acc.status === 'atrasado'
+                                ? 'text-[#E03131] bg-red-50 px-2 py-0.5 rounded-md'
+                                : 'text-gray-700'
+                            }`}
+                          >
+                            {acc.vencimento}
+                          </span>
+                        </td>
+                        <td className="py-3 px-3 font-extrabold whitespace-nowrap text-[#010102] text-right tabular-nums">
+                          {formatCurrency(acc.valor)}
+                        </td>
+                        <td className="py-3 px-2 text-center whitespace-nowrap">
+                          <StatusBadge status={acc.status} size="xs" />
+                        </td>
+                        <td className="py-3 px-3 text-center whitespace-nowrap">
+                          <div className="flex items-center justify-center gap-1.5">
+                            <Button
+                              variant={isPaid ? 'secondary' : 'success'}
+                              size="xs"
+                              icon={isPaid ? 'undo' : 'check'}
+                              onClick={() => toggleAccountPaidStatus(acc.id)}
+                            >
+                              {isPaid ? 'Reabrir' : activeTab === 'pagar' ? 'Pagar' : 'Receber'}
+                            </Button>
+
+                            <Button
+                              variant="ghost"
+                              size="xs"
+                              icon="delete"
+                              className="text-gray-400 hover:text-red-600 hover:bg-red-50"
+                              title="Excluir Conta"
+                              onClick={() => {
+                                if (confirm(`Deseja excluir "${acc.descricao}"?`)) {
+                                  deleteAccount(acc.id);
+                                }
+                              }}
+                            />
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile View: High-density card items with zero horizontal scroll & swipe actions */}
+            <div className="md:hidden divide-y divide-gray-100">
+              <div className="bg-amber-50/60 px-4 py-1.5 border-b border-amber-100 text-[10px] text-amber-800 flex items-center justify-between">
+                <span className="flex items-center gap-1 font-medium">
+                  <span className="material-symbols-outlined text-[13px]">swipe_left</span>
+                  Deslize para liquidar ou excluir rapidamente
+                </span>
+                <span className="text-[9px] font-mono text-amber-600 font-bold uppercase tracking-wider">Touch</span>
+              </div>
+
+              {paginatedAccounts.map((acc) => {
+                const isPaid = acc.status === 'pago';
+                const isAtrasado = acc.status === 'atrasado';
+
+                return (
+                  <SwipeableRow
+                    key={acc.id}
+                    actions={[
+                      {
+                        label: isPaid ? 'Reabrir' : activeTab === 'pagar' ? 'Pagar' : 'Receber',
+                        icon: isPaid ? 'undo' : 'check_circle',
+                        colorClass: isPaid ? 'bg-gray-700 text-white' : 'bg-emerald-600 text-white',
+                        onClick: () => toggleAccountPaidStatus(acc.id),
+                      },
+                      {
+                        label: 'Excluir',
+                        icon: 'delete',
+                        colorClass: 'bg-red-600 text-white',
+                        onClick: () => {
+                          if (confirm(`Deseja excluir "${acc.descricao}"?`)) {
+                            deleteAccount(acc.id);
+                          }
+                        },
+                      },
+                    ]}
+                  >
+                    <div
+                      className={`p-4 flex flex-col gap-2.5 transition-colors ${
+                        isAtrasado ? 'bg-red-50/20' : 'hover:bg-gray-50/70'
+                      }`}
+                    >
+                      {/* Header: Descrição + Status */}
+                      <div className="flex items-start justify-between gap-2">
+                        <h4 className="text-xs font-bold text-[#010102] leading-snug">
+                          {acc.descricao}
+                        </h4>
                         <StatusBadge status={acc.status} size="xs" />
-                      </td>
-                      <td className="py-3 px-4 text-center whitespace-nowrap">
-                        <div className="flex items-center justify-center gap-1.5">
+                      </div>
+
+                      {/* Middle: Fornecedor/Cliente + Parcela + Vencimento */}
+                      <div className="flex items-center justify-between text-[11px] text-gray-600 gap-2 flex-wrap">
+                        <span className="font-semibold text-gray-800 truncate max-w-[180px]">
+                          {acc.fornecedorCliente}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="bg-gray-100 px-1.5 py-0.5 rounded text-[10px] font-bold text-gray-600">
+                            Parc. {acc.parcela}
+                          </span>
+                          <span className={`font-mono ${isAtrasado ? 'text-[#E03131] font-bold' : 'text-gray-500'}`}>
+                            Venc: {acc.vencimento}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Footer: Valor + Actions */}
+                      <div className="flex items-center justify-between pt-1.5 border-t border-gray-100 gap-2 mt-0.5">
+                        <span className="text-sm font-black text-[#010102] tabular-nums">
+                          {formatCurrency(acc.valor)}
+                        </span>
+
+                        <div className="flex items-center gap-1.5">
                           <Button
                             variant={isPaid ? 'secondary' : 'success'}
                             size="xs"
@@ -273,13 +381,13 @@ export const ContasView: React.FC = () => {
                             }}
                           />
                         </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                      </div>
+                    </div>
+                  </SwipeableRow>
+                );
+              })}
+            </div>
+          </>
         )}
 
         <Pagination
