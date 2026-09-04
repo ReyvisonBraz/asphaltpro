@@ -26,6 +26,7 @@ export interface IntegrityCheckReport {
   lastChecked: string;
   isFirebaseConnected: boolean;
   projectId?: string;
+  remoteMessage?: string;
   diagnosticItems: {
     label: string;
     value: string;
@@ -507,6 +508,7 @@ class SyncManager {
       lastChecked: this.lastIntegrityCheck,
       isFirebaseConnected: isFirebaseConfigured && remoteTestSuccess,
       projectId: config?.projectId,
+      remoteMessage,
       diagnosticItems,
       recommendation
     };

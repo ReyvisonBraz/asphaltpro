@@ -114,8 +114,9 @@ export const SyncDetailsModal: React.FC<SyncDetailsModalProps> = ({ isOpen, onCl
       });
       showToast('Firebase corporativo configurado e validado com sucesso!', 'success');
     } else {
+      const detailMsg = testReport.remoteMessage || testReport.statusText;
       setConfigTestMessage({
-        text: `Configuração gravada, mas o teste retornou: ${testReport.statusText}. Verifique as permissões.`,
+        text: `Configuração gravada, mas o teste retornou: ${detailMsg}. Veja o guia de permissões abaixo.`,
         ok: false
       });
     }
@@ -488,6 +489,39 @@ export const SyncDetailsModal: React.FC<SyncDetailsModalProps> = ({ isOpen, onCl
               </div>
             )}
 
+            {/* Firestore Rules Help */}
+            <div className="p-3 bg-gray-50 border border-gray-200 rounded-xl text-xs flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-gray-800 flex items-center gap-1.5">
+                  <span className="material-symbols-outlined text-amber-600 text-[18px]">rule</span>
+                  Regras de Segurança do Firestore (Necessário Liberar no Console)
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(`rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /{document=**} {\n      allow read, write: if true;\n    }\n  }\n}`);
+                    showToast('Regra copiada para a área de transferência!', 'info');
+                  }}
+                  className="text-[11px] font-semibold text-amber-700 hover:text-amber-800 bg-amber-100/70 hover:bg-amber-100 px-2 py-1 rounded transition-colors"
+                >
+                  Copiar Regra Padrão
+                </button>
+              </div>
+              <p className="text-gray-600 leading-relaxed text-[11px]">
+                Se o teste retornar erro de permissões (<em>Missing or insufficient permissions</em>), vá no Firebase Console em <strong>Firestore Database &gt; Regras (Rules)</strong>, cole a regra abaixo e clique em <strong>Publicar (Publish)</strong>:
+              </p>
+              <pre className="p-2 bg-gray-900 text-emerald-400 rounded text-[11px] font-mono overflow-x-auto leading-tight">
+{`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}`}
+              </pre>
+            </div>
+
             <div className="flex items-center justify-between pt-2 border-t border-gray-200">
               <Button
                 variant="danger"
@@ -524,18 +558,18 @@ export const SyncDetailsModal: React.FC<SyncDetailsModalProps> = ({ isOpen, onCl
               </span>
             </div>
 
-            <div className="max-h-64 overflow-y-auto divide-y divide-gray-100 text-xs">
+            <div className="max-h-72 overflow-y-auto divide-y divide-gray-100 text-xs">
               {logs.length === 0 ? (
                 <div className="p-4 text-center text-gray-400">Nenhum evento registrado.</div>
               ) : (
                 logs.map((log) => (
                   <div
                     key={log.id}
-                    className="p-3 flex items-center justify-between gap-3 hover:bg-gray-50"
+                    className="p-3 flex items-start justify-between gap-3 hover:bg-gray-50 transition-colors select-text"
                   >
-                    <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="flex items-start gap-2.5 min-w-0 flex-1">
                       <span
-                        className={`w-2 h-2 rounded-full shrink-0 ${
+                        className={`w-2 h-2 rounded-full shrink-0 mt-1 ${
                           log.type === 'success'
                             ? 'bg-emerald-500'
                             : log.type === 'warning'
@@ -545,9 +579,18 @@ export const SyncDetailsModal: React.FC<SyncDetailsModalProps> = ({ isOpen, onCl
                             : 'bg-blue-500'
                         }`}
                       />
-                      <span className="text-gray-800 truncate font-medium">{log.description}</span>
+                      <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                        <span className="text-gray-800 font-medium leading-relaxed break-words">
+                          {log.description}
+                        </span>
+                        {log.itemCount !== undefined && log.itemCount > 0 && (
+                          <span className="text-[10px] text-gray-500">
+                            {log.itemCount} registros processados
+                          </span>
+                        )}
+                      </div>
                     </div>
-                    <span className="text-[11px] text-gray-400 font-mono shrink-0 whitespace-nowrap">
+                    <span className="text-[11px] text-gray-400 font-mono shrink-0 whitespace-nowrap pt-0.5">
                       {log.timestamp}
                     </span>
                   </div>

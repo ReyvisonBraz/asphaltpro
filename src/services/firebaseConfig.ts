@@ -140,6 +140,39 @@ export const testFirebaseConnection = async (): Promise<FirebaseConnectionTestRe
 };
 
 /**
+ * Recursively cleans an object to make it Firestore-compliant:
+ * - Firestore strictly forbids any properties with `undefined` values.
+ * - This function recursively removes `undefined` properties or converts them to `null`.
+ * - Handles nested arrays, dates, and objects cleanly.
+ */
+export const sanitizeForFirestore = (obj: any): any => {
+  if (obj === undefined) {
+    return null;
+  }
+  if (obj === null || typeof obj !== 'object') {
+    return obj;
+  }
+  if (obj instanceof Date) {
+    return obj;
+  }
+  // If it's a Firestore FieldValue or serverTimestamp sentinel, preserve it
+  if (typeof obj === 'object' && ('_methodName' in obj || '_delegate' in obj)) {
+    return obj;
+  }
+  if (Array.isArray(obj)) {
+    return obj.map((item) => (item === undefined ? null : sanitizeForFirestore(item)));
+  }
+
+  const cleanObj: Record<string, any> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value !== undefined) {
+      cleanObj[key] = sanitizeForFirestore(value);
+    }
+  }
+  return cleanObj;
+};
+
+/**
  * Perform a single document mutation on Firestore safely.
  */
 export const syncDocToFirestore = async (
@@ -156,8 +189,9 @@ export const syncDocToFirestore = async (
     if (action === 'delete') {
       await deleteDoc(docRef);
     } else {
+      const sanitized = sanitizeForFirestore(payload || {});
       await setDoc(docRef, {
-        ...payload,
+        ...sanitized,
         _syncedAt: serverTimestamp()
       }, { merge: true });
     }
