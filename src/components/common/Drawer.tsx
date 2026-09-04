@@ -28,55 +28,29 @@ export const Drawer: React.FC<DrawerProps> = ({
   footer,
   className = '',
 }) => {
-  const drawerIdRef = useRef(`drawer-${Math.random().toString(36).slice(2, 9)}`);
-  const pushedHistoryRef = useRef(false);
+  const onCloseRef = useRef(onClose);
 
   useEffect(() => {
-    if (!isOpen) {
-      if (pushedHistoryRef.current) {
-        pushedHistoryRef.current = false;
-        if (window.history.state?.modalId === drawerIdRef.current) {
-          window.history.back();
-        }
-      }
-      return;
-    }
+    onCloseRef.current = onClose;
+  });
 
-    pushedHistoryRef.current = true;
-    window.history.pushState(
-      { isModal: true, modalId: drawerIdRef.current },
-      ''
-    );
-
-    const handlePopState = () => {
-      if (pushedHistoryRef.current) {
-        pushedHistoryRef.current = false;
-        onClose();
-      }
-    };
+  useEffect(() => {
+    if (!isOpen) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        onClose();
+        onCloseRef.current();
       }
     };
 
     document.body.style.overflow = 'hidden';
-    window.addEventListener('popstate', handlePopState);
     window.addEventListener('keydown', handleKeyDown);
 
     return () => {
       document.body.style.overflow = 'unset';
-      window.removeEventListener('popstate', handlePopState);
       window.removeEventListener('keydown', handleKeyDown);
-      if (pushedHistoryRef.current) {
-        pushedHistoryRef.current = false;
-        if (window.history.state?.modalId === drawerIdRef.current) {
-          window.history.back();
-        }
-      }
     };
-  }, [isOpen, onClose]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 

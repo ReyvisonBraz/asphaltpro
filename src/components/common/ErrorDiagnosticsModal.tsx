@@ -242,19 +242,19 @@ Status: ${err.resolvido ? 'Resolvido' : 'Pendente'}`;
                     <button
                       onClick={handleCopyFullReport}
                       className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-white border border-[#DEE2E6] text-xs font-semibold text-[#010102] rounded-md hover:bg-[#F8F9FA] transition-colors"
-                      title="Copiar relatório completo para enviar ao suporte ou TI"
+                      title="Copiar relatório completo para enviar ao suporte"
                     >
                       {copiedReport ? <Check className="w-3.5 h-3.5 text-green-600" /> : <Copy className="w-3.5 h-3.5" />}
-                      <span>{copiedReport ? 'Copiado!' : 'Copiar Relatório TI'}</span>
+                      <span>{copiedReport ? 'Copiado!' : 'Copiar Diagnóstico'}</span>
                     </button>
 
                     <button
                       onClick={handleDownloadReportJson}
                       className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-white border border-[#DEE2E6] text-xs font-semibold text-[#010102] rounded-md hover:bg-[#F8F9FA] transition-colors"
-                      title="Baixar arquivo JSON de erros"
+                      title="Baixar arquivo de diagnóstico"
                     >
                       <Download className="w-3.5 h-3.5" />
-                      <span>Exportar JSON</span>
+                      <span>Salvar Diagnóstico</span>
                     </button>
 
                     <button

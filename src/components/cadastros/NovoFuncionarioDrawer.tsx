@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { maskCpfCnpj, maskPhone } from '../../utils/formatters';
 import { Drawer, Button, Input, Select } from '../common';
+import { employeeFormSchema, validateForm } from '../../schemas/validationSchemas';
 
 export const NovoFuncionarioDrawer: React.FC = () => {
   const {
@@ -11,6 +12,7 @@ export const NovoFuncionarioDrawer: React.FC = () => {
     setEditingEmployee,
     addEmployee,
     updateEmployee,
+    showToast,
   } = useApp();
 
   const [nome, setNome] = useState('');
@@ -19,7 +21,7 @@ export const NovoFuncionarioDrawer: React.FC = () => {
   const [telefone, setTelefone] = useState('');
   const [isMotorista, setIsMotorista] = useState(false);
   const [status, setStatus] = useState<'ativo' | 'inativo'>('ativo');
-  const [errorNome, setErrorNome] = useState('');
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (editingEmployee) {
@@ -37,7 +39,7 @@ export const NovoFuncionarioDrawer: React.FC = () => {
       setIsMotorista(false);
       setStatus('ativo');
     }
-    setErrorNome('');
+    setFormErrors({});
   }, [editingEmployee, isNovoFuncionarioOpen]);
 
   const handleClose = () => {
@@ -47,29 +49,44 @@ export const NovoFuncionarioDrawer: React.FC = () => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!nome.trim()) {
-      setErrorNome('Por favor, informe o nome do colaborador');
+
+    const validation = validateForm(employeeFormSchema, {
+      nome,
+      cargo,
+      documento,
+      telefone,
+      isMotorista,
+      status,
+    });
+
+    if (!validation.success) {
+      setFormErrors(validation.errors);
+      showToast(validation.firstError, 'error');
       return;
     }
 
+    setFormErrors({});
+
     if (editingEmployee) {
       updateEmployee(editingEmployee.id, {
-        nome: nome.trim(),
-        documento: documento.trim(),
-        cargo,
-        telefone: telefone.trim(),
-        isMotorista,
-        status,
+        nome: validation.data.nome,
+        documento: validation.data.documento,
+        cargo: validation.data.cargo,
+        telefone: validation.data.telefone,
+        isMotorista: validation.data.isMotorista,
+        status: validation.data.status,
       });
+      showToast('Colaborador atualizado com sucesso!', 'success');
     } else {
       addEmployee({
-        nome: nome.trim(),
-        documento: documento.trim(),
-        cargo,
-        telefone: telefone.trim(),
-        isMotorista,
-        status,
+        nome: validation.data.nome,
+        documento: validation.data.documento,
+        cargo: validation.data.cargo,
+        telefone: validation.data.telefone,
+        isMotorista: validation.data.isMotorista,
+        status: validation.data.status,
       });
+      showToast('Colaborador cadastrado com sucesso!', 'success');
     }
 
     handleClose();
@@ -109,18 +126,25 @@ export const NovoFuncionarioDrawer: React.FC = () => {
           value={nome}
           onChange={(e) => {
             setNome(e.target.value);
-            if (errorNome) setErrorNome('');
+            if (formErrors.nome) {
+              setFormErrors((prev) => {
+                const n = { ...prev };
+                delete n.nome;
+                return n;
+              });
+            }
           }}
-          error={errorNome}
+          error={formErrors.nome}
           leftIcon="person"
           required
         />
 
         {/* Cargo */}
         <Select
-          label="Cargo / Função Operacional"
+          label="Cargo / Função Operacional *"
           value={cargo}
           onChange={(e) => setCargo(e.target.value)}
+          error={formErrors.cargo}
           leftIcon="badge"
           options={[
             { value: 'Operador de Usina', label: 'Operador de Usina de Asfalto' },
@@ -141,6 +165,7 @@ export const NovoFuncionarioDrawer: React.FC = () => {
           placeholder="000.000.000-00"
           value={documento}
           onChange={(e) => setDocumento(maskCpfCnpj(e.target.value))}
+          error={formErrors.documento}
           leftIcon="badge"
         />
 
@@ -150,6 +175,7 @@ export const NovoFuncionarioDrawer: React.FC = () => {
           placeholder="(00) 00000-0000"
           value={telefone}
           onChange={(e) => setTelefone(maskPhone(e.target.value))}
+          error={formErrors.telefone}
           leftIcon="phone"
         />
 

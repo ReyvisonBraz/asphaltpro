@@ -22,39 +22,18 @@ export const BottomNavigation: React.FC<BottomNavigationProps> = ({ onOpenMobile
   } = useApp();
 
   const [isQuickActionsOpen, setIsQuickActionsOpen] = useState(false);
-  const pushedQuickActionsRef = useRef(false);
 
   useEffect(() => {
-    if (!isQuickActionsOpen) {
-      if (pushedQuickActionsRef.current) {
-        pushedQuickActionsRef.current = false;
-        if (window.history.state?.isQuickActions) {
-          window.history.back();
-        }
-      }
-      return;
-    }
+    if (!isQuickActionsOpen) return;
 
-    pushedQuickActionsRef.current = true;
-    window.history.pushState({ isModal: true, isQuickActions: true }, '');
-
-    const handlePopState = () => {
-      if (pushedQuickActionsRef.current) {
-        pushedQuickActionsRef.current = false;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
         setIsQuickActionsOpen(false);
       }
     };
 
-    window.addEventListener('popstate', handlePopState);
-    return () => {
-      window.removeEventListener('popstate', handlePopState);
-      if (pushedQuickActionsRef.current) {
-        pushedQuickActionsRef.current = false;
-        if (window.history.state?.isQuickActions) {
-          window.history.back();
-        }
-      }
-    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isQuickActionsOpen]);
 
   const pendingQuotes = quotes.filter(q => q.status === 'rascunho' || q.status === 'enviado').length;
@@ -205,24 +184,22 @@ export const BottomNavigation: React.FC<BottomNavigationProps> = ({ onOpenMobile
               </button>
 
               {/* Novo Funcionário / Motorista */}
-              {permissions.canManageUsers && (
-                <button
-                  onClick={() => {
-                    setIsQuickActionsOpen(false);
-                    setEditingEmployee(null);
-                    setIsNovoFuncionarioOpen(true);
-                  }}
-                  className="col-span-2 flex items-center gap-3 p-3 rounded-2xl bg-blue-50 border border-blue-200/80 hover:bg-blue-100/70 text-left transition-all active:scale-98"
-                >
-                  <div className="w-10 h-10 rounded-xl bg-[#1971C2] text-white flex items-center justify-center shrink-0 shadow-xs">
-                    <span className="material-symbols-outlined text-[20px]">person_add</span>
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-xs font-black text-blue-950 truncate">Cadastrar Colaborador / Motorista</div>
-                    <div className="text-[10px] text-blue-700 truncate">Equipe operacional, usina e pavimentação</div>
-                  </div>
-                </button>
-              )}
+              <button
+                onClick={() => {
+                  setIsQuickActionsOpen(false);
+                  setEditingEmployee(null);
+                  setIsNovoFuncionarioOpen(true);
+                }}
+                className="col-span-2 flex items-center gap-3 p-3 rounded-2xl bg-blue-50 border border-blue-200/80 hover:bg-blue-100/70 text-left transition-all active:scale-98"
+              >
+                <div className="w-10 h-10 rounded-xl bg-[#1971C2] text-white flex items-center justify-center shrink-0 shadow-xs">
+                  <span className="material-symbols-outlined text-[20px]">person_add</span>
+                </div>
+                <div className="min-w-0">
+                  <div className="text-xs font-black text-blue-950 truncate">Cadastrar Colaborador / Motorista</div>
+                  <div className="text-[10px] text-blue-700 truncate">Equipe operacional, usina e pavimentação</div>
+                </div>
+              </button>
             </div>
           </div>
         </div>

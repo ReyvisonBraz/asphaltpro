@@ -73,6 +73,10 @@
 }
 
 /* Print Rules for A4 PDF and Paper */
+.print-only {
+  display: none !important;
+}
+
 @media print {
   body {
     background: #FFFFFF !important;
@@ -83,8 +87,17 @@
   header, 
   nav, 
   .no-print,
+  .print\:hidden,
   button:not(.print-include) {
     display: none !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  .print-only-flex {
+    display: flex !important;
   }
 
   #orcamento-a4-sheet {
@@ -99,7 +112,7 @@
 
   @page {
     size: A4 portrait;
-    margin: 10mm 12mm 10mm 12mm;
+    margin: 8mm 10mm 8mm 10mm;
   }
 }
 

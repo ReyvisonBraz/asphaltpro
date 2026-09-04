@@ -13,8 +13,6 @@ export const TopHeader: React.FC = () => {
     navigateBack,
     canGoBack,
     previousViewTitle,
-    globalSearch,
-    setGlobalSearch,
     notifications,
     user,
     systemUsers,
@@ -23,7 +21,9 @@ export const TopHeader: React.FC = () => {
     setIsHelpOpen,
     setIsDiagnosticsOpen,
     setCurrentView,
-    setIsMobileSidebarOpen
+    setIsMobileSidebarOpen,
+    isSidebarCollapsed,
+    toggleSidebarCollapsed
   } = useApp();
 
   const errors = useSyncExternalStore(
@@ -70,14 +70,28 @@ export const TopHeader: React.FC = () => {
   return (
     <>
       <header className="h-16 bg-white border-b border-[#DEE2E6] z-30 flex justify-between items-center px-4 sm:px-6 lg:px-10 sticky top-0 w-full shadow-none">
-        {/* Title + Back Button + Mobile Menu Trigger */}
-        <div className="flex items-center gap-1.5 sm:gap-3 min-w-0 flex-1 mr-2">
+        {/* Title + Back Button + Mobile Menu Trigger + Desktop Sidebar Toggle */}
+        <div className="flex items-center gap-1.5 sm:gap-2.5 min-w-0 flex-1 mr-2">
+          {/* Mobile Menu Button */}
           <button
             onClick={() => setIsMobileSidebarOpen(true)}
             className="lg:hidden p-2 -ml-1 text-gray-700 hover:text-black hover:bg-gray-100 rounded-lg flex items-center justify-center shrink-0 cursor-pointer"
             aria-label="Abrir Menu"
           >
             <span className="material-symbols-outlined text-[24px]">menu</span>
+          </button>
+
+          {/* Desktop Sidebar Collapse Toggle */}
+          <button
+            type="button"
+            onClick={toggleSidebarCollapsed}
+            className="hidden lg:flex p-2 text-gray-600 hover:text-black hover:bg-gray-100 rounded-xl transition-colors cursor-pointer shrink-0 border border-gray-200/80 shadow-2xs active:scale-95"
+            title={isSidebarCollapsed ? "Fixar e expandir barra lateral (Ctrl+B)" : "Recolher barra lateral para expandir área útil (Ctrl+B)"}
+            aria-label="Alternar barra lateral"
+          >
+            <span className="material-symbols-outlined text-[20px] text-gray-700">
+              {isSidebarCollapsed ? 'dock_to_right' : 'dock_to_left'}
+            </span>
           </button>
 
           {canGoBack && (
@@ -104,28 +118,6 @@ export const TopHeader: React.FC = () => {
 
           {/* PWA Install Button (if available in browser) */}
           <PWAInstallButton variant="header" />
-
-          {/* Search Bar */}
-          <div className="relative hidden xl:block">
-            <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[#77767B] text-[18px]">
-              search
-            </span>
-            <input
-              type="text"
-              value={globalSearch}
-              onChange={(e) => setGlobalSearch(e.target.value)}
-              placeholder="Buscar..."
-              className="pl-9 pr-4 py-1.5 rounded border border-[#C7C6CA] bg-[#FFFFFF] focus:border-[#010102] focus:ring-1 focus:ring-[#010102] text-sm w-44 lg:w-56 outline-none transition-all placeholder:text-[#858486]"
-            />
-            {globalSearch && (
-              <button
-                onClick={() => setGlobalSearch('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400 hover:text-gray-600"
-              >
-                ✕
-              </button>
-            )}
-          </div>
 
           {/* Action icons */}
           <div className="flex items-center gap-1 text-[#46464A]">
@@ -318,7 +310,7 @@ export const TopHeader: React.FC = () => {
                   className="w-full text-left px-4 py-2 text-xs text-gray-700 hover:bg-gray-50 flex items-center gap-2"
                 >
                   <span className="material-symbols-outlined text-[18px]">settings</span>
-                  Configurações & Usuários (RBAC)
+                  Configurações & Usuários
                 </button>
                 <button
                   onClick={() => {
@@ -337,10 +329,12 @@ export const TopHeader: React.FC = () => {
       </header>
 
       {/* Sync Details & Audit Modal */}
-      <SyncDetailsModal
-        isOpen={isSyncModalOpen}
-        onClose={() => setIsSyncModalOpen(false)}
-      />
+      {isSyncModalOpen && (
+        <SyncDetailsModal
+          isOpen={isSyncModalOpen}
+          onClose={() => setIsSyncModalOpen(false)}
+        />
+      )}
     </>
   );
 };

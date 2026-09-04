@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Employee, BusinessPartner, PartnerType } from '../../types';
+import { exportEmployeesCsv, exportPartnersCsv } from '../../utils/exportUtils';
+import { ImportEntityType } from '../../utils/importUtils';
 import {
   Button,
   StatusBadge,
@@ -9,7 +11,15 @@ import {
   Modal,
   Input,
   Select,
+  ConfirmModal,
 } from '../common';
+import { ImportDataModal } from '../common/ImportDataModal';
+import {
+  partnerFormSchema,
+  bankAccountFormSchema,
+  categoryFormSchema,
+  validateForm,
+} from '../../schemas/validationSchemas';
 
 export const CadastrosView: React.FC = () => {
   const {
@@ -19,24 +29,56 @@ export const CadastrosView: React.FC = () => {
     setEditingEmployee,
     setIsNovoFuncionarioOpen,
     categories,
+    addCategory,
+    updateCategory,
+    deleteCategory,
     bankAccounts,
+    addBankAccount,
+    updateBankAccount,
+    deleteBankAccount,
     partners,
     addPartner,
+    updatePartner,
     deletePartner,
     globalSearch,
     showToast,
   } = useApp();
 
+  const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<{
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    details?: { label: string; value: string }[];
+  } | null>(null);
+
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [importEntityType, setImportEntityType] = useState<ImportEntityType>('colaboradores');
+
   const [activeSubTab, setActiveSubTab] = useState<
     'funcionarios' | 'fornecedores' | 'categorias' | 'contas'
-  >('funcionarios');
+  >(() => {
+    if (typeof window === 'undefined') return 'funcionarios';
+    const params = new URLSearchParams(window.location.hash.split('?')[1] || '');
+    const tab = params.get('tab');
+    if (tab === 'funcionarios' || tab === 'fornecedores' || tab === 'categorias' || tab === 'contas') {
+      return tab;
+    }
+    return 'funcionarios';
+  });
 
-  // Sync subtabs with browser back/forward history
+  // Sync subtabs with browser back/forward history / hash
   useEffect(() => {
     const handlePopState = (e: PopStateEvent) => {
       if (e.state?.subTab) {
         setActiveSubTab(e.state.subTab);
         setCurrentPage(1);
+      } else {
+        const params = new URLSearchParams(window.location.hash.split('?')[1] || '');
+        const tab = params.get('tab');
+        if (tab === 'funcionarios' || tab === 'fornecedores' || tab === 'categorias' || tab === 'contas') {
+          setActiveSubTab(tab);
+          setCurrentPage(1);
+        }
       }
     };
     window.addEventListener('popstate', handlePopState);
@@ -45,7 +87,7 @@ export const CadastrosView: React.FC = () => {
 
   const handleSubTabChange = (tab: 'funcionarios' | 'fornecedores' | 'categorias' | 'contas') => {
     if (tab === activeSubTab) return;
-    window.history.pushState({ isView: true, view: 'cadastros', subTab: tab }, '', `#cadastros?tab=${tab}`);
+    window.history.replaceState({ isView: true, view: 'cadastros', subTab: tab }, '', `#cadastros?tab=${tab}`);
     setActiveSubTab(tab);
     setCurrentPage(1);
   };
@@ -54,14 +96,25 @@ export const CadastrosView: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 6;
 
-  // Modal for new Category
+  // Modal for Category (Create & Edit)
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+  const [editingCategory, setEditingCategory] = useState<{ id: string; nome: string; tipo: 'receita' | 'despesa'; icone?: string; cor?: string } | null>(null);
   const [newCatNome, setNewCatNome] = useState('');
   const [newCatTipo, setNewCatTipo] = useState<'receita' | 'despesa'>('despesa');
   const [newCatIcone, setNewCatIcone] = useState('category');
+  const [newCatCor, setNewCatCor] = useState('#835400');
 
-  // Modal for new Business Partner
+  // Modal for Bank Account (Create & Edit)
+  const [isBankAccountModalOpen, setIsBankAccountModalOpen] = useState(false);
+  const [editingBankAccount, setEditingBankAccount] = useState<{ id: string; nome: string; banco: string; agenciaConta: string; saldo: number } | null>(null);
+  const [newBankNome, setNewBankNome] = useState('');
+  const [newBankBanco, setNewBankBanco] = useState('Banco do Brasil');
+  const [newBankAgenciaConta, setNewBankAgenciaConta] = useState('');
+  const [newBankSaldo, setNewBankSaldo] = useState<number | string>('0');
+
+  // Modal for Business Partner (Create & Edit)
   const [isPartnerModalOpen, setIsPartnerModalOpen] = useState(false);
+  const [editingPartner, setEditingPartner] = useState<BusinessPartner | null>(null);
   const [newPartnerNome, setNewPartnerNome] = useState('');
   const [newPartnerFantasia, setNewPartnerFantasia] = useState('');
   const [newPartnerTipo, setNewPartnerTipo] = useState<PartnerType>('fornecedor');
@@ -72,6 +125,91 @@ export const CadastrosView: React.FC = () => {
   const [newPartnerCidadeUf, setNewPartnerCidadeUf] = useState('');
   const [newPartnerEndereco, setNewPartnerEndereco] = useState('');
   const [newPartnerRamo, setNewPartnerRamo] = useState('');
+
+  const openNewPartnerModal = (tipo: PartnerType = 'fornecedor') => {
+    setEditingPartner(null);
+    setNewPartnerNome('');
+    setNewPartnerFantasia('');
+    setNewPartnerTipo(tipo);
+    setNewPartnerDoc('');
+    setNewPartnerContato('');
+    setNewPartnerTelefone('');
+    setNewPartnerEmail('');
+    setNewPartnerCidadeUf('');
+    setNewPartnerEndereco('');
+    setNewPartnerRamo('');
+    setIsPartnerModalOpen(true);
+  };
+
+  const openEditPartnerModal = (partner: BusinessPartner) => {
+    setEditingPartner(partner);
+    setNewPartnerNome(partner.nome || '');
+    setNewPartnerFantasia(partner.nomeFantasia || '');
+    setNewPartnerTipo(partner.tipo || 'fornecedor');
+    setNewPartnerDoc(partner.documento || '');
+    setNewPartnerContato(partner.contato || '');
+    setNewPartnerTelefone(partner.telefone || '');
+    setNewPartnerEmail(partner.email || '');
+    setNewPartnerCidadeUf(partner.cidadeUf || '');
+    setNewPartnerEndereco(partner.endereco || '');
+    setNewPartnerRamo(partner.ramoAtividade || '');
+    setIsPartnerModalOpen(true);
+  };
+
+  const handleSavePartner = (e: React.FormEvent) => {
+    e.preventDefault();
+
+    const validation = validateForm(partnerFormSchema, {
+      nome: newPartnerNome,
+      nomeFantasia: newPartnerFantasia,
+      tipo: newPartnerTipo,
+      documento: newPartnerDoc,
+      contato: newPartnerContato,
+      telefone: newPartnerTelefone,
+      email: newPartnerEmail,
+      cidadeUf: newPartnerCidadeUf,
+      endereco: newPartnerEndereco,
+      ramoAtividade: newPartnerRamo,
+    });
+
+    if (!validation.success) {
+      showToast(validation.firstError, 'error');
+      return;
+    }
+
+    if (editingPartner) {
+      updatePartner(editingPartner.id, {
+        nome: validation.data.nome,
+        nomeFantasia: validation.data.nomeFantasia || undefined,
+        tipo: validation.data.tipo,
+        documento: validation.data.documento || undefined,
+        contato: validation.data.contato || undefined,
+        telefone: validation.data.telefone || undefined,
+        email: validation.data.email || undefined,
+        cidadeUf: validation.data.cidadeUf || undefined,
+        endereco: validation.data.endereco || undefined,
+        ramoAtividade: validation.data.ramoAtividade || undefined,
+      });
+      showToast(`Parceiro "${validation.data.nome}" atualizado com sucesso!`, 'success');
+    } else {
+      addPartner({
+        nome: validation.data.nome,
+        nomeFantasia: validation.data.nomeFantasia || undefined,
+        tipo: validation.data.tipo,
+        documento: validation.data.documento || undefined,
+        contato: validation.data.contato || undefined,
+        telefone: validation.data.telefone || undefined,
+        email: validation.data.email || undefined,
+        cidadeUf: validation.data.cidadeUf || undefined,
+        endereco: validation.data.endereco || undefined,
+        ramoAtividade: validation.data.ramoAtividade || undefined,
+        status: 'ativo',
+      });
+      showToast(`Parceiro "${validation.data.nome}" cadastrado com sucesso!`, 'success');
+    }
+
+    setIsPartnerModalOpen(false);
+  };
 
   // Filtered employees
   const filteredEmployees = useMemo(() => {
@@ -95,53 +233,113 @@ export const CadastrosView: React.FC = () => {
     setIsNovoFuncionarioOpen(true);
   };
 
-  const handleAddCategory = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newCatNome.trim()) return;
-    categories.push({
-      id: `cat_${Date.now()}`,
-      nome: newCatNome.trim(),
-      tipo: newCatTipo,
-      cor: newCatTipo === 'receita' ? '#2F9E44' : '#835400',
-      icone: newCatIcone,
-    });
-    showToast(`Categoria "${newCatNome}" adicionada com sucesso!`, 'success');
+  const openNewCategoryModal = () => {
+    setEditingCategory(null);
     setNewCatNome('');
-    setIsCategoryModalOpen(false);
+    setNewCatTipo('despesa');
+    setNewCatIcone('category');
+    setNewCatCor('#835400');
+    setIsCategoryModalOpen(true);
   };
 
-  const handleAddPartner = (e: React.FormEvent) => {
+  const openEditCategoryModal = (cat: { id: string; nome: string; tipo: 'receita' | 'despesa'; icone?: string; cor?: string }) => {
+    setEditingCategory(cat);
+    setNewCatNome(cat.nome);
+    setNewCatTipo(cat.tipo);
+    setNewCatIcone(cat.icone || 'category');
+    setNewCatCor(cat.cor || (cat.tipo === 'receita' ? '#2F9E44' : '#835400'));
+    setIsCategoryModalOpen(true);
+  };
+
+  const handleSaveCategory = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newPartnerNome.trim()) {
-      showToast('Informe o nome ou razão social do parceiro.', 'error');
+
+    const validation = validateForm(categoryFormSchema, {
+      nome: newCatNome,
+      tipo: newCatTipo,
+      icone: newCatIcone,
+      cor: newCatCor || (newCatTipo === 'receita' ? '#2F9E44' : '#835400'),
+    });
+
+    if (!validation.success) {
+      showToast(validation.firstError, 'error');
       return;
     }
 
-    addPartner({
-      nome: newPartnerNome.trim(),
-      nomeFantasia: newPartnerFantasia.trim() || undefined,
-      tipo: newPartnerTipo,
-      documento: newPartnerDoc.trim() || undefined,
-      contato: newPartnerContato.trim() || undefined,
-      telefone: newPartnerTelefone.trim() || undefined,
-      email: newPartnerEmail.trim() || undefined,
-      cidadeUf: newPartnerCidadeUf.trim() || undefined,
-      endereco: newPartnerEndereco.trim() || undefined,
-      ramoAtividade: newPartnerRamo.trim() || undefined,
-      status: 'ativo',
+    if (editingCategory) {
+      updateCategory(editingCategory.id, {
+        nome: validation.data.nome,
+        tipo: validation.data.tipo,
+        icone: validation.data.icone,
+        cor: validation.data.cor,
+      });
+      showToast('Categoria atualizada com sucesso!', 'success');
+    } else {
+      addCategory({
+        nome: validation.data.nome,
+        tipo: validation.data.tipo,
+        cor: validation.data.cor,
+        icone: validation.data.icone,
+      });
+      showToast('Categoria adicionada com sucesso!', 'success');
+    }
+    setIsCategoryModalOpen(false);
+  };
+
+  const openNewBankAccountModal = () => {
+    setEditingBankAccount(null);
+    setNewBankNome('');
+    setNewBankBanco('Banco do Brasil');
+    setNewBankAgenciaConta('');
+    setNewBankSaldo('0,00');
+    setIsBankAccountModalOpen(true);
+  };
+
+  const openEditBankAccountModal = (acc: { id: string; nome: string; banco: string; agenciaConta: string; saldo: number }) => {
+    setEditingBankAccount(acc);
+    setNewBankNome(acc.nome);
+    setNewBankBanco(acc.banco);
+    setNewBankAgenciaConta(acc.agenciaConta);
+    setNewBankSaldo(acc.saldo.toFixed(2).replace('.', ','));
+    setIsBankAccountModalOpen(true);
+  };
+
+  const handleSaveBankAccount = (e: React.FormEvent) => {
+    e.preventDefault();
+
+    const validation = validateForm(bankAccountFormSchema, {
+      nome: newBankNome,
+      banco: newBankBanco,
+      agenciaConta: newBankAgenciaConta,
+      saldo: newBankSaldo,
     });
 
-    setNewPartnerNome('');
-    setNewPartnerFantasia('');
-    setNewPartnerDoc('');
-    setNewPartnerContato('');
-    setNewPartnerTelefone('');
-    setNewPartnerEmail('');
-    setNewPartnerCidadeUf('');
-    setNewPartnerEndereco('');
-    setNewPartnerRamo('');
-    setIsPartnerModalOpen(false);
+    if (!validation.success) {
+      showToast(validation.firstError, 'error');
+      return;
+    }
+
+    if (editingBankAccount) {
+      updateBankAccount(editingBankAccount.id, {
+        nome: validation.data.nome,
+        banco: validation.data.banco,
+        agenciaConta: validation.data.agenciaConta || 'Ag. Principal / C/C Operacional',
+        saldo: validation.data.saldo,
+      });
+      showToast('Conta bancária atualizada com sucesso!', 'success');
+    } else {
+      addBankAccount({
+        nome: validation.data.nome,
+        banco: validation.data.banco,
+        agenciaConta: validation.data.agenciaConta || 'Ag. Principal / C/C Operacional',
+        saldo: validation.data.saldo,
+      });
+      showToast('Conta bancária adicionada com sucesso!', 'success');
+    }
+    setIsBankAccountModalOpen(false);
   };
+
+
 
   const filteredPartners = useMemo(() => {
     const q = (globalSearch || searchTerm).toLowerCase();
@@ -172,38 +370,82 @@ export const CadastrosView: React.FC = () => {
           </p>
         </div>
 
-        {activeSubTab === 'funcionarios' && (
-          <Button
-            variant="primary"
-            icon="person_add"
-            onClick={() => {
-              setEditingEmployee(null);
-              setIsNovoFuncionarioOpen(true);
-            }}
-          >
-            Novo Colaborador
-          </Button>
-        )}
+        <div className="flex items-center gap-2 flex-wrap">
+          {activeSubTab === 'funcionarios' && (
+            <>
+              <Button
+                variant="outline"
+                icon="upload_file"
+                onClick={() => {
+                  setImportEntityType('colaboradores');
+                  setIsImportModalOpen(true);
+                }}
+                title="Importar lista de colaboradores em formato CSV"
+              >
+                Importar (.CSV)
+              </Button>
+              <Button
+                variant="outline"
+                icon="download"
+                onClick={() => exportEmployeesCsv(employees)}
+                title="Exportar lista de colaboradores em formato CSV"
+              >
+                Exportar (.CSV)
+              </Button>
+              <Button
+                variant="primary"
+                icon="person_add"
+                onClick={() => {
+                  setEditingEmployee(null);
+                  setIsNovoFuncionarioOpen(true);
+                }}
+              >
+                Novo Colaborador
+              </Button>
+            </>
+          )}
 
-        {activeSubTab === 'fornecedores' && (
-          <Button
-            variant="primary"
-            icon="add_business"
-            onClick={() => setIsPartnerModalOpen(true)}
-          >
-            Novo Parceiro / Cliente
-          </Button>
-        )}
+          {activeSubTab === 'fornecedores' && (
+            <>
+              <Button
+                variant="outline"
+                icon="upload_file"
+                onClick={() => {
+                  setImportEntityType('parceiros');
+                  setIsImportModalOpen(true);
+                }}
+                title="Importar parceiros e clientes em formato CSV"
+              >
+                Importar (.CSV)
+              </Button>
+              <Button
+                variant="outline"
+                icon="download"
+                onClick={() => exportPartnersCsv(filteredPartners)}
+                title="Exportar parceiros e clientes em formato CSV"
+              >
+                Exportar (.CSV)
+              </Button>
+              <Button
+                variant="primary"
+                icon="add_business"
+                onClick={() => setIsPartnerModalOpen(true)}
+              >
+                Novo Parceiro / Cliente
+              </Button>
+            </>
+          )}
 
-        {activeSubTab === 'categorias' && (
-          <Button
-            variant="primary"
-            icon="add_circle"
-            onClick={() => setIsCategoryModalOpen(true)}
-          >
-            Nova Categoria
-          </Button>
-        )}
+          {activeSubTab === 'categorias' && (
+            <Button
+              variant="primary"
+              icon="add_circle"
+              onClick={() => setIsCategoryModalOpen(true)}
+            >
+              Nova Categoria
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Navigation Sub-Tabs */}
@@ -390,9 +632,16 @@ export const CadastrosView: React.FC = () => {
                                 className="text-gray-400 hover:text-red-600 hover:bg-red-50"
                                 title="Excluir Colaborador"
                                 onClick={() => {
-                                  if (confirm(`Deseja excluir o registro de "${emp.nome}"?`)) {
-                                    deleteEmployee(emp.id);
-                                  }
+                                  setDeleteConfirmTarget({
+                                    title: 'Excluir Colaborador',
+                                    message: `Tem certeza que deseja remover o cadastro de ${emp.nome}? O histórico associado será preservado nos lançamentos.`,
+                                    onConfirm: () => deleteEmployee(emp.id),
+                                    details: [
+                                      { label: 'Nome', value: emp.nome },
+                                      { label: 'Cargo', value: emp.cargo },
+                                      ...(emp.documento ? [{ label: 'CPF / Doc', value: emp.documento }] : []),
+                                    ],
+                                  });
                                 }}
                               />
                             </div>
@@ -481,9 +730,15 @@ export const CadastrosView: React.FC = () => {
                             icon="delete"
                             className="text-gray-400 hover:text-red-600 hover:bg-red-50"
                             onClick={() => {
-                              if (confirm(`Deseja excluir o registro de "${emp.nome}"?`)) {
-                                deleteEmployee(emp.id);
-                              }
+                              setDeleteConfirmTarget({
+                                title: 'Excluir Colaborador',
+                                message: `Tem certeza que deseja remover o cadastro de ${emp.nome}? O histórico associado será preservado nos lançamentos.`,
+                                onConfirm: () => deleteEmployee(emp.id),
+                                details: [
+                                  { label: 'Nome', value: emp.nome },
+                                  { label: 'Cargo', value: emp.cargo },
+                                ],
+                              });
                             }}
                           />
                         </div>
@@ -544,7 +799,7 @@ export const CadastrosView: React.FC = () => {
                   actionLabel="Cadastrar Fornecedor"
                   onAction={() => {
                     setNewPartnerTipo('fornecedor');
-                    setIsPartnerModalOpen(true);
+                    openNewPartnerModal('fornecedor');
                   }}
                 />
               ) : (
@@ -571,17 +826,32 @@ export const CadastrosView: React.FC = () => {
                           {f.telefone && <span>Tel: {f.telefone}</span>}
                         </div>
                       </div>
-                      <button
-                        onClick={() => {
-                          if (confirm(`Deseja remover "${f.nome}" da lista de parceiros?`)) {
-                            deletePartner(f.id);
-                          }
-                        }}
-                        className="text-gray-400 hover:text-red-600 p-1 rounded hover:bg-red-50 transition-colors shrink-0 cursor-pointer"
-                        title="Excluir parceiro"
-                      >
-                        <span className="material-symbols-outlined text-[18px]">delete</span>
-                      </button>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          onClick={() => openEditPartnerModal(f)}
+                          className="text-gray-500 hover:text-black hover:bg-gray-100 p-1.5 rounded-lg transition-colors cursor-pointer"
+                          title="Editar fornecedor"
+                        >
+                          <span className="material-symbols-outlined text-[18px]">edit</span>
+                        </button>
+                        <button
+                          onClick={() => {
+                            setDeleteConfirmTarget({
+                              title: 'Excluir Parceiro / Fornecedor',
+                              message: `Deseja remover ${f.nome} da lista de parceiros comerciais?`,
+                              onConfirm: () => deletePartner(f.id),
+                              details: [
+                                { label: 'Razão Social / Nome', value: f.nome },
+                                ...(f.documento ? [{ label: 'CNPJ/CPF', value: f.documento }] : []),
+                              ],
+                            });
+                          }}
+                          className="text-gray-400 hover:text-red-600 hover:bg-red-50 p-1.5 rounded-lg transition-colors cursor-pointer"
+                          title="Excluir parceiro"
+                        >
+                          <span className="material-symbols-outlined text-[18px]">delete</span>
+                        </button>
+                      </div>
                     </li>
                   ))}
                 </ul>
@@ -602,8 +872,7 @@ export const CadastrosView: React.FC = () => {
                   description="Cadastre prefeituras, construtoras e condomínios que compram massa asfáltica."
                   actionLabel="Cadastrar Cliente"
                   onAction={() => {
-                    setNewPartnerTipo('cliente');
-                    setIsPartnerModalOpen(true);
+                    openNewPartnerModal('cliente');
                   }}
                 />
               ) : (
@@ -630,17 +899,32 @@ export const CadastrosView: React.FC = () => {
                           {c.contato && <span>Contato: {c.contato}</span>}
                         </div>
                       </div>
-                      <button
-                        onClick={() => {
-                          if (confirm(`Deseja remover "${c.nome}" da lista de clientes?`)) {
-                            deletePartner(c.id);
-                          }
-                        }}
-                        className="text-gray-400 hover:text-red-600 p-1 rounded hover:bg-red-50 transition-colors shrink-0 cursor-pointer"
-                        title="Excluir cliente"
-                      >
-                        <span className="material-symbols-outlined text-[18px]">delete</span>
-                      </button>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          onClick={() => openEditPartnerModal(c)}
+                          className="text-gray-500 hover:text-black hover:bg-gray-100 p-1.5 rounded-lg transition-colors cursor-pointer"
+                          title="Editar cliente"
+                        >
+                          <span className="material-symbols-outlined text-[18px]">edit</span>
+                        </button>
+                        <button
+                          onClick={() => {
+                            setDeleteConfirmTarget({
+                              title: 'Excluir Cliente',
+                              message: `Deseja remover ${c.nome} da lista de clientes cadastrados?`,
+                              onConfirm: () => deletePartner(c.id),
+                              details: [
+                                { label: 'Razão Social / Nome', value: c.nome },
+                                ...(c.documento ? [{ label: 'CNPJ/CPF', value: c.documento }] : []),
+                              ],
+                            });
+                          }}
+                          className="text-gray-400 hover:text-red-600 hover:bg-red-50 p-1.5 rounded-lg transition-colors cursor-pointer"
+                          title="Excluir cliente"
+                        >
+                          <span className="material-symbols-outlined text-[18px]">delete</span>
+                        </button>
+                      </div>
                     </li>
                   ))}
                 </ul>
@@ -653,53 +937,82 @@ export const CadastrosView: React.FC = () => {
       {/* SubTab 3: Categorias */}
       {activeSubTab === 'categorias' && (
         <div className="bg-white p-6 rounded-2xl border border-[#DEE2E6] shadow-xs">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
             <div>
-              <h3 className="font-bold text-[#010102] text-base">
-                Categorias do Livro Caixa e DRE
+              <h3 className="font-bold text-[#010102] text-base flex items-center gap-2">
+                <span className="material-symbols-outlined text-[#835400] text-[20px]">category</span>
+                Categorias do Livro Caixa e DRE ({categories.length})
               </h3>
               <p className="text-xs text-gray-500">
-                Estrutura contábil para classificação de receitas e despesas da usina
+                Estrutura contábil para classificação de receitas operacionais e despesas da usina de asfalto
               </p>
             </div>
             <Button
               variant="primary"
               size="sm"
               icon="add"
-              onClick={() => setIsCategoryModalOpen(true)}
+              onClick={openNewCategoryModal}
             >
               Adicionar Categoria
             </Button>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3.5">
             {categories.map((cat) => (
               <div
                 key={cat.id}
-                className="p-4 rounded-xl border border-[#DEE2E6] bg-gray-50/50 flex items-center justify-between hover:bg-white hover:shadow-xs transition-all"
+                className="p-4 rounded-xl border border-[#DEE2E6] bg-gray-50/50 flex items-center justify-between hover:bg-white hover:shadow-xs transition-all group"
               >
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-gray-200 flex items-center justify-center">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div 
+                    className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
+                    style={{ backgroundColor: `${cat.cor || '#835400'}20` }}
+                  >
                     <span
-                      className={`material-symbols-outlined text-[20px] ${
-                        cat.tipo === 'receita' ? 'text-[#2F9E44]' : 'text-[#835400]'
-                      }`}
+                      className="material-symbols-outlined text-[20px]"
+                      style={{ color: cat.cor || (cat.tipo === 'receita' ? '#2F9E44' : '#835400') }}
                     >
                       {cat.icone || 'label'}
                     </span>
                   </div>
-                  <div>
-                    <p className="font-bold text-xs text-[#010102]">{cat.nome}</p>
+                  <div className="min-w-0">
+                    <p className="font-bold text-xs text-[#010102] truncate">{cat.nome}</p>
                     <span
                       className={`text-[10px] uppercase font-bold tracking-wider ${
-                        cat.tipo === 'receita' ? 'text-[#2F9E44]' : 'text-[#E03131]'
+                        cat.tipo === 'receita' ? 'text-[#2F9E44]' : 'text-[#835400]'
                       }`}
                     >
                       {cat.tipo}
                     </span>
                   </div>
                 </div>
-                <span className="w-3 h-3 rounded-full" style={{ backgroundColor: cat.cor }} />
+
+                <div className="flex items-center gap-1 shrink-0 opacity-80 group-hover:opacity-100 transition-opacity">
+                  <button
+                    onClick={() => openEditCategoryModal(cat)}
+                    className="p-1.5 rounded-lg text-gray-400 hover:text-[#835400] hover:bg-[#FFF4E6] transition-colors cursor-pointer"
+                    title="Editar categoria"
+                  >
+                    <span className="material-symbols-outlined text-[16px]">edit</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setDeleteConfirmTarget({
+                        title: 'Excluir Categoria Contábil',
+                        message: `Deseja excluir a categoria "${cat.nome}"? Lançamentos antigos manterão seu registro de texto.`,
+                        onConfirm: () => deleteCategory(cat.id),
+                        details: [
+                          { label: 'Categoria', value: cat.nome },
+                          { label: 'Tipo', value: cat.tipo === 'receita' ? 'Receita' : 'Despesa' },
+                        ],
+                      });
+                    }}
+                    className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
+                    title="Excluir categoria"
+                  >
+                    <span className="material-symbols-outlined text-[16px]">delete</span>
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -708,46 +1021,94 @@ export const CadastrosView: React.FC = () => {
 
       {/* SubTab 4: Contas Bancárias */}
       {activeSubTab === 'contas' && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-          {bankAccounts.map((acc) => (
-            <div
-              key={acc.id}
-              className="bg-white p-6 rounded-2xl border border-[#DEE2E6] shadow-xs flex flex-col justify-between"
-            >
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-bold text-gray-500 uppercase">{acc.banco}</span>
-                  <span className="material-symbols-outlined text-[#835400]">account_balance</span>
-                </div>
-                <h4 className="text-base font-bold text-[#010102]">{acc.nome}</h4>
-                <p className="text-xs text-gray-500 mt-1 font-mono">{acc.agenciaConta}</p>
-              </div>
-
-              <div className="mt-6 pt-4 border-t border-gray-100 flex justify-between items-end">
-                <div>
-                  <span className="text-[10px] text-gray-400 uppercase font-bold block">
-                    Saldo Disponível
-                  </span>
-                  <span className="text-xl font-black text-[#2F9E44] tabular-nums">
-                    {new Intl.NumberFormat('pt-BR', {
-                      style: 'currency',
-                      currency: 'BRL',
-                    }).format(acc.saldo)}
-                  </span>
-                </div>
-                <span className="w-2.5 h-2.5 rounded-full bg-[#2F9E44]" />
-              </div>
+        <div className="space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-[#DEE2E6] shadow-xs">
+            <div>
+              <h3 className="font-bold text-[#010102] text-base flex items-center gap-2">
+                <span className="material-symbols-outlined text-[#835400] text-[20px]">account_balance</span>
+                Contas Bancárias & Caixas ({bankAccounts.length})
+              </h3>
+              <p className="text-xs text-gray-500">
+                Gerenciamento de contas correntes, aplicações e caixas internos da usina
+              </p>
             </div>
-          ))}
+            <Button
+              variant="primary"
+              size="sm"
+              icon="add"
+              onClick={openNewBankAccountModal}
+            >
+              Adicionar Conta Bancária
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            {bankAccounts.map((acc) => (
+              <div
+                key={acc.id}
+                className="bg-white p-6 rounded-2xl border border-[#DEE2E6] shadow-xs flex flex-col justify-between hover:shadow-md transition-shadow group"
+              >
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-bold text-gray-500 uppercase">{acc.banco}</span>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => openEditBankAccountModal(acc)}
+                        className="p-1 rounded text-gray-400 hover:text-[#835400] hover:bg-[#FFF4E6] transition-colors cursor-pointer"
+                        title="Editar conta bancária"
+                      >
+                        <span className="material-symbols-outlined text-[16px]">edit</span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          setDeleteConfirmTarget({
+                            title: 'Excluir Conta Bancária / Caixa',
+                            message: `Deseja excluir o registro da conta "${acc.nome}"?`,
+                            onConfirm: () => deleteBankAccount(acc.id),
+                            details: [
+                              { label: 'Conta / Caixa', value: acc.nome },
+                              { label: 'Instituição', value: acc.banco },
+                              { label: 'Agência / Conta', value: acc.agenciaConta },
+                            ],
+                          });
+                        }}
+                        className="p-1 rounded text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
+                        title="Excluir conta bancária"
+                      >
+                        <span className="material-symbols-outlined text-[16px]">delete</span>
+                      </button>
+                    </div>
+                  </div>
+                  <h4 className="text-base font-bold text-[#010102]">{acc.nome}</h4>
+                  <p className="text-xs text-gray-500 mt-1 font-mono">{acc.agenciaConta}</p>
+                </div>
+
+                <div className="mt-6 pt-4 border-t border-gray-100 flex justify-between items-end">
+                  <div>
+                    <span className="text-[10px] text-gray-400 uppercase font-bold block">
+                      Saldo Disponível
+                    </span>
+                    <span className="text-xl font-black text-[#2F9E44] tabular-nums">
+                      {new Intl.NumberFormat('pt-BR', {
+                        style: 'currency',
+                        currency: 'BRL',
+                      }).format(acc.saldo)}
+                    </span>
+                  </div>
+                  <span className="w-2.5 h-2.5 rounded-full bg-[#2F9E44]" />
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
-      {/* Modal Nova Categoria */}
+      {/* Modal Categoria (Nova ou Editar) */}
       <Modal
         isOpen={isCategoryModalOpen}
         onClose={() => setIsCategoryModalOpen(false)}
-        title="Nova Categoria Financeira"
-        subtitle="Crie uma nova classificação contábil para o fluxo de caixa."
+        title={editingCategory ? 'Editar Categoria Financeira' : 'Nova Categoria Financeira'}
+        subtitle="Defina o nome, tipo e ícone da classificação contábil."
         footer={
           <>
             <Button
@@ -761,14 +1122,14 @@ export const CadastrosView: React.FC = () => {
               variant="primary"
               size="sm"
               icon="save"
-              onClick={handleAddCategory}
+              onClick={handleSaveCategory}
             >
-              Salvar Categoria
+              {editingCategory ? 'Salvar Alterações' : 'Criar Categoria'}
             </Button>
           </>
         }
       >
-        <form onSubmit={handleAddCategory} className="flex flex-col gap-4">
+        <form onSubmit={handleSaveCategory} className="flex flex-col gap-4">
           <Input
             label="Nome da Categoria *"
             placeholder="Ex: Óleo BPF / Combustível Secador"
@@ -788,28 +1149,122 @@ export const CadastrosView: React.FC = () => {
             ]}
           />
 
-          <Select
-            label="Ícone Decorativo"
-            value={newCatIcone}
-            onChange={(e) => setNewCatIcone(e.target.value)}
-            options={[
-              { value: 'category', label: 'Categoria Padrão' },
-              { value: 'oil_barrel', label: 'Óleo / Betume / CAP' },
-              { value: 'local_shipping', label: 'Transporte / Frete' },
-              { value: 'build', label: 'Manutenção e Peças' },
-              { value: 'bolt', label: 'Energia Elétrica' },
-              { value: 'receipt', label: 'Impostos e Tributos' },
-            ]}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Select
+              label="Ícone Decorativo"
+              value={newCatIcone}
+              onChange={(e) => setNewCatIcone(e.target.value)}
+              options={[
+                { value: 'category', label: 'Categoria Padrão' },
+                { value: 'oil_barrel', label: 'Óleo / Betume / CAP' },
+                { value: 'local_shipping', label: 'Transporte / Frete' },
+                { value: 'build', label: 'Manutenção e Peças' },
+                { value: 'bolt', label: 'Energia Elétrica' },
+                { value: 'receipt', label: 'Impostos e Tributos' },
+                { value: 'badge', label: 'Folha de Pagamento' },
+                { value: 'payments', label: 'Receita de Venda' },
+              ]}
+            />
+
+            <div>
+              <label className="text-xs font-bold text-[#010102] block mb-1.5">Cor da Etiqueta</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  value={newCatCor}
+                  onChange={(e) => setNewCatCor(e.target.value)}
+                  className="w-10 h-10 rounded-lg border border-gray-300 p-1 cursor-pointer"
+                />
+                <span className="text-xs text-gray-500 font-mono">{newCatCor}</span>
+              </div>
+            </div>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Modal Conta Bancária (Nova ou Editar) */}
+      <Modal
+        isOpen={isBankAccountModalOpen}
+        onClose={() => setIsBankAccountModalOpen(false)}
+        title={editingBankAccount ? 'Editar Conta Bancária' : 'Nova Conta Bancária / Caixa'}
+        subtitle="Cadastre agência, número de conta e saldo para controle do livro caixa."
+        footer={
+          <>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setIsBankAccountModalOpen(false)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              icon="save"
+              onClick={handleSaveBankAccount}
+            >
+              {editingBankAccount ? 'Salvar Alterações' : 'Cadastrar Conta'}
+            </Button>
+          </>
+        }
+      >
+        <form onSubmit={handleSaveBankAccount} className="flex flex-col gap-4">
+          <Input
+            label="Nome da Conta / Identificação *"
+            placeholder="Ex: Banco do Brasil - Conta Operacional"
+            value={newBankNome}
+            onChange={(e) => setNewBankNome(e.target.value)}
+            required
+            autoFocus
+          />
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Select
+              label="Instituição Financeira *"
+              value={newBankBanco}
+              onChange={(e) => setNewBankBanco(e.target.value)}
+              options={[
+                { value: 'Banco do Brasil', label: 'Banco do Brasil' },
+                { value: 'Itaú Unibanco', label: 'Itaú Unibanco' },
+                { value: 'Bradesco', label: 'Bradesco' },
+                { value: 'Santander', label: 'Santander' },
+                { value: 'Caixa Econômica', label: 'Caixa Econômica Federal' },
+                { value: 'Sicoob', label: 'Sicoob' },
+                { value: 'Sicredi', label: 'Sicredi' },
+                { value: 'BTG Pactual', label: 'BTG Pactual' },
+                { value: 'Caixa Interno (Espécie)', label: 'Caixa Interno da Usina' },
+              ]}
+            />
+            <Input
+              label="Agência e Conta *"
+              placeholder="Ex: Ag: 1234-5 / CC: 98765-4"
+              value={newBankAgenciaConta}
+              onChange={(e) => setNewBankAgenciaConta(e.target.value)}
+              required
+            />
+          </div>
+
+          <Input
+            label="Saldo Inicial (R$)"
+            type="number"
+            step="0.01"
+            placeholder="0.00"
+            value={newBankSaldo}
+            onChange={(e) => setNewBankSaldo(e.target.value)}
           />
         </form>
       </Modal>
 
-      {/* Modal Novo Parceiro Comercial */}
+      {/* Modal Parceiro Comercial (Novo & Edição) */}
       <Modal
         isOpen={isPartnerModalOpen}
         onClose={() => setIsPartnerModalOpen(false)}
-        title="Novo Parceiro Comercial"
-        subtitle="Cadastre clientes ou fornecedores para agilizar propostas e lançamentos."
+        title={editingPartner ? `Editar: ${editingPartner.nome}` : 'Novo Parceiro Comercial'}
+        subtitle={
+          editingPartner
+            ? 'Atualize os dados cadastrais e de contato do parceiro comercial.'
+            : 'Cadastre clientes ou fornecedores para agilizar propostas e lançamentos.'
+        }
         size="md"
         footer={
           <>
@@ -824,14 +1279,14 @@ export const CadastrosView: React.FC = () => {
               variant="primary"
               size="sm"
               icon="save"
-              onClick={handleAddPartner}
+              onClick={handleSavePartner}
             >
-              Salvar Parceiro
+              {editingPartner ? 'Salvar Alterações' : 'Salvar Parceiro'}
             </Button>
           </>
         }
       >
-        <form onSubmit={handleAddPartner} className="flex flex-col gap-3">
+        <form onSubmit={handleSavePartner} className="flex flex-col gap-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Select
               label="Tipo de Parceiro *"
@@ -912,6 +1367,32 @@ export const CadastrosView: React.FC = () => {
           />
         </form>
       </Modal>
+
+      {/* Confirmation Modal for Cadastros */}
+      <ConfirmModal
+        isOpen={!!deleteConfirmTarget}
+        onClose={() => setDeleteConfirmTarget(null)}
+        onConfirm={() => {
+          if (deleteConfirmTarget) {
+            deleteConfirmTarget.onConfirm();
+            setDeleteConfirmTarget(null);
+          }
+        }}
+        title={deleteConfirmTarget?.title || 'Confirmar Exclusão'}
+        message={deleteConfirmTarget?.message || 'Deseja realmente excluir este item?'}
+        confirmText="Sim, Excluir Registro"
+        cancelText="Cancelar"
+        variant="danger"
+        icon="delete"
+        itemDetails={deleteConfirmTarget?.details}
+      />
+
+      {/* Import Modal */}
+      <ImportDataModal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+        entityType={importEntityType}
+      />
     </div>
   );
 };

@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { QuoteCatalogItem } from '../../types';
+import { ConfirmModal } from '../common/ConfirmModal';
+import { catalogItemFormSchema, validateForm } from '../../schemas/validationSchemas';
 
 interface CatalogoItensDrawerProps {
   isOpen: boolean;
@@ -19,13 +21,15 @@ export const CatalogoItensDrawer: React.FC<CatalogoItensDrawerProps> = ({
   const [filterModalidade, setFilterModalidade] = useState<string>('todos');
   const [editingItem, setEditingItem] = useState<QuoteCatalogItem | null>(null);
   const [isCreating, setIsCreating] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState<QuoteCatalogItem | null>(null);
 
   // Form state
   const [nome, setNome] = useState('');
   const [descricao, setDescricao] = useState('');
   const [modalidade, setModalidade] = useState<QuoteCatalogItem['modalidade']>('com_aplicacao');
   const [unidadePadrao, setUnidadePadrao] = useState('ton');
-  const [valorUnitarioPadrao, setValorUnitarioPadrao] = useState<string>('450.00');
+  const [valorUnitarioPadrao, setValorUnitarioPadrao] = useState<string>('450,00');
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
   if (!isOpen) return null;
 
@@ -35,7 +39,8 @@ export const CatalogoItensDrawer: React.FC<CatalogoItensDrawerProps> = ({
     setDescricao('');
     setModalidade('com_aplicacao');
     setUnidadePadrao('ton');
-    setValorUnitarioPadrao('450.00');
+    setValorUnitarioPadrao('450,00');
+    setFormErrors({});
     setIsCreating(true);
   };
 
@@ -45,35 +50,48 @@ export const CatalogoItensDrawer: React.FC<CatalogoItensDrawerProps> = ({
     setDescricao(item.descricao || '');
     setModalidade(item.modalidade);
     setUnidadePadrao(item.unidadePadrao);
-    setValorUnitarioPadrao(item.valorUnitarioPadrao.toFixed(2));
+    setValorUnitarioPadrao(item.valorUnitarioPadrao.toFixed(2).replace('.', ','));
+    setFormErrors({});
     setIsCreating(true);
   };
 
   const handleSaveItem = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!nome.trim()) {
-      showToast('Informe o nome do item.', 'error');
+
+    const validation = validateForm(catalogItemFormSchema, {
+      nome,
+      descricao,
+      modalidade,
+      unidadePadrao,
+      valorUnitarioPadrao,
+    });
+
+    if (!validation.success) {
+      setFormErrors(validation.errors);
+      showToast(validation.firstError, 'error');
       return;
     }
 
-    const price = parseFloat(valorUnitarioPadrao.replace(',', '.')) || 0;
+    setFormErrors({});
 
     if (editingItem) {
       updateCatalogItem(editingItem.id, {
-        nome,
-        descricao,
-        modalidade,
-        unidadePadrao,
-        valorUnitarioPadrao: price
+        nome: validation.data.nome,
+        descricao: validation.data.descricao,
+        modalidade: validation.data.modalidade,
+        unidadePadrao: validation.data.unidadePadrao,
+        valorUnitarioPadrao: validation.data.valorUnitarioPadrao,
       });
+      showToast('Item do catálogo atualizado com sucesso!', 'success');
     } else {
       addCatalogItem({
-        nome,
-        descricao,
-        modalidade,
-        unidadePadrao,
-        valorUnitarioPadrao: price
+        nome: validation.data.nome,
+        descricao: validation.data.descricao,
+        modalidade: validation.data.modalidade,
+        unidadePadrao: validation.data.unidadePadrao,
+        valorUnitarioPadrao: validation.data.valorUnitarioPadrao,
       });
+      showToast('Item cadastrado no catálogo com sucesso!', 'success');
     }
 
     setIsCreating(false);
@@ -156,9 +174,17 @@ export const CatalogoItensDrawer: React.FC<CatalogoItensDrawerProps> = ({
                       required
                       placeholder="Ex: CBUQ Faixa C (CAP 50/70) - Com Aplicação"
                       value={nome}
-                      onChange={(e) => setNome(e.target.value)}
-                      className="w-full p-2.5 rounded-lg border border-[#C7C6CA] text-xs text-[#010102] bg-white focus:border-[#010102] outline-none"
+                      onChange={(e) => {
+                        setNome(e.target.value);
+                        if (formErrors.nome) {
+                          setFormErrors(prev => { const n = { ...prev }; delete n.nome; return n; });
+                        }
+                      }}
+                      className={`w-full p-2.5 rounded-lg border text-xs text-[#010102] bg-white outline-none ${
+                        formErrors.nome ? 'border-red-500 ring-1 ring-red-500' : 'border-[#C7C6CA] focus:border-[#010102]'
+                      }`}
                     />
+                    {formErrors.nome && <p className="text-[11px] text-red-600 mt-1">{formErrors.nome}</p>}
                   </div>
 
                   <div>
@@ -200,19 +226,25 @@ export const CatalogoItensDrawer: React.FC<CatalogoItensDrawerProps> = ({
 
                   <div className="sm:col-span-2">
                     <label className="block text-xs font-semibold text-[#1C1B1B] uppercase mb-1">
-                      Preço Unitário Padrão (R$)
+                      Preço Unitário Padrão (R$) *
                     </label>
                     <input
-                      type="number"
+                      type="text"
                       inputMode="decimal"
-                      step="0.01"
-                      min="0"
                       required
-                      placeholder="0.00"
+                      placeholder="0,00"
                       value={valorUnitarioPadrao}
-                      onChange={(e) => setValorUnitarioPadrao(e.target.value)}
-                      className="w-full p-2.5 rounded-lg border border-[#C7C6CA] text-xs text-[#010102] bg-white focus:border-[#010102] outline-none font-mono"
+                      onChange={(e) => {
+                        setValorUnitarioPadrao(e.target.value);
+                        if (formErrors.valorUnitarioPadrao) {
+                          setFormErrors(prev => { const n = { ...prev }; delete n.valorUnitarioPadrao; return n; });
+                        }
+                      }}
+                      className={`w-full p-2.5 rounded-lg border text-xs text-[#010102] bg-white outline-none font-mono ${
+                        formErrors.valorUnitarioPadrao ? 'border-red-500 ring-1 ring-red-500' : 'border-[#C7C6CA] focus:border-[#010102]'
+                      }`}
                     />
+                    {formErrors.valorUnitarioPadrao && <p className="text-[11px] text-red-600 mt-1">{formErrors.valorUnitarioPadrao}</p>}
                   </div>
 
                   <div className="sm:col-span-2">
@@ -327,18 +359,14 @@ export const CatalogoItensDrawer: React.FC<CatalogoItensDrawerProps> = ({
                       )}
                       <button
                         onClick={() => handleStartEdit(item)}
-                        className="p-1.5 text-gray-400 hover:text-black hover:bg-gray-100 rounded-lg transition-colors"
+                        className="p-1.5 text-gray-400 hover:text-black hover:bg-gray-100 rounded-lg transition-colors cursor-pointer"
                         title="Editar modelo"
                       >
                         <span className="material-symbols-outlined text-[18px]">edit</span>
                       </button>
                       <button
-                        onClick={() => {
-                          if (confirm(`Remover "${item.nome}" do catálogo?`)) {
-                            deleteCatalogItem(item.id);
-                          }
-                        }}
-                        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                        onClick={() => setItemToDelete(item)}
+                        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
                         title="Excluir"
                       >
                         <span className="material-symbols-outlined text-[18px]">delete</span>
@@ -362,6 +390,32 @@ export const CatalogoItensDrawer: React.FC<CatalogoItensDrawerProps> = ({
           </div>
         </div>
       </div>
+
+      <ConfirmModal
+        isOpen={!!itemToDelete}
+        onClose={() => setItemToDelete(null)}
+        onConfirm={() => {
+          if (itemToDelete) {
+            deleteCatalogItem(itemToDelete.id);
+            setItemToDelete(null);
+          }
+        }}
+        title="Excluir Item do Catálogo"
+        message="Deseja remover este modelo do catálogo de produtos e serviços?"
+        confirmText="Sim, Excluir Item"
+        cancelText="Cancelar"
+        variant="danger"
+        icon="delete"
+        itemDetails={
+          itemToDelete
+            ? [
+                { label: 'Item', value: itemToDelete.nome },
+                { label: 'Unidade', value: itemToDelete.unidadePadrao },
+                { label: 'Valor Padrão', value: `R$ ${itemToDelete.valorUnitarioPadrao.toFixed(2)}` },
+              ]
+            : []
+        }
+      />
     </div>
   );
 };

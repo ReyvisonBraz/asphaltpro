@@ -7,6 +7,7 @@ export function useKeyboardShortcuts() {
     openNovoLancamentoWithTab,
     setIsNovoOrcamentoOpen,
     setIsHelpOpen,
+    toggleSidebarCollapsed,
     isNovoLancamentoOpen,
     isNovoOrcamentoOpen,
     isNovoFuncionarioOpen,
@@ -32,6 +33,13 @@ export function useKeyboardShortcuts() {
         if (isNovoFuncionarioOpen) setIsNovoFuncionarioOpen(false);
         if (isNovaContaOpen) setIsNovaContaOpen(false);
         if (isHelpOpen) setIsHelpOpen(false);
+        return;
+      }
+
+      // Ctrl+B or Cmd+B -> Toggle Sidebar Collapse
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'b' || e.key === 'B')) {
+        e.preventDefault();
+        toggleSidebarCollapsed();
         return;
       }
 

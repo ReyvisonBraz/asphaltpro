@@ -1,7 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { useApp } from '../../context/AppContext';
 import { formatCurrency } from '../../utils/formatters';
-import { AccountType, AccountStatus } from '../../types';
+import { exportAccountsCsv } from '../../utils/exportUtils';
+import { AccountType, AccountStatus, AccountItem } from '../../types';
 import {
   Button,
   StatCard,
@@ -9,7 +10,9 @@ import {
   Pagination,
   EmptyState,
   SwipeableRow,
+  ConfirmModal,
 } from '../common';
+import { ImportDataModal } from '../common/ImportDataModal';
 
 export const ContasView: React.FC = () => {
   const {
@@ -24,16 +27,31 @@ export const ContasView: React.FC = () => {
     totalPendenteReceber,
   } = useApp();
 
-  const [activeTab, setActiveTab] = useState<AccountType>('pagar');
+  const [activeTab, setActiveTab] = useState<AccountType>(() => {
+    if (typeof window === 'undefined') return 'pagar';
+    const params = new URLSearchParams(window.location.hash.split('?')[1] || '');
+    const tab = params.get('tab');
+    if (tab === 'pagar' || tab === 'receber') return tab;
+    return 'pagar';
+  });
   const [selectedStatus, setSelectedStatus] = useState<'todos' | AccountStatus>('todos');
   const [searchTerm, setSearchTerm] = useState('');
+  const [accountToDelete, setAccountToDelete] = useState<AccountItem | null>(null);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
-  // Sync activeTab with browser history
+  // Sync activeTab with browser history/hash changes
   React.useEffect(() => {
     const handlePopState = (e: PopStateEvent) => {
       if (e.state?.activeTab) {
         setActiveTab(e.state.activeTab);
         setCurrentPage(1);
+      } else {
+        const params = new URLSearchParams(window.location.hash.split('?')[1] || '');
+        const tab = params.get('tab');
+        if (tab === 'pagar' || tab === 'receber') {
+          setActiveTab(tab);
+          setCurrentPage(1);
+        }
       }
     };
     window.addEventListener('popstate', handlePopState);
@@ -42,7 +60,7 @@ export const ContasView: React.FC = () => {
 
   const handleTabChange = (tab: AccountType) => {
     if (tab === activeTab) return;
-    window.history.pushState({ isView: true, view: 'contas', activeTab: tab }, '', `#contas?tab=${tab}`);
+    window.history.replaceState({ isView: true, view: 'contas', activeTab: tab }, '', `#contas?tab=${tab}`);
     setActiveTab(tab);
     setCurrentPage(1);
   };
@@ -87,13 +105,33 @@ export const ContasView: React.FC = () => {
           </p>
         </div>
 
-        <Button
-          variant="primary"
-          icon="add_card"
-          onClick={() => setIsNovaContaOpen(true)}
-        >
-          Nova Conta / Título
-        </Button>
+        <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap">
+          <Button
+            variant="outline"
+            icon="upload_file"
+            onClick={() => setIsImportModalOpen(true)}
+            title="Importar títulos e contas em lote a partir de planilha CSV"
+          >
+            Importar (.CSV)
+          </Button>
+
+          <Button
+            variant="outline"
+            icon="download"
+            onClick={() => exportAccountsCsv(filteredAccounts)}
+            title="Exportar contas filtradas em formato CSV (Excel)"
+          >
+            Exportar (.CSV)
+          </Button>
+
+          <Button
+            variant="primary"
+            icon="add_card"
+            onClick={() => setIsNovaContaOpen(true)}
+          >
+            Nova Conta / Título
+          </Button>
+        </div>
       </div>
 
       {/* Primary Tabs */}
@@ -217,13 +255,13 @@ export const ContasView: React.FC = () => {
           />
         ) : (
           <>
-            {/* Desktop / Tablet View: Fluid Table with zero horizontal scrolling */}
-            <div className="hidden md:block w-full">
-              <table className="w-full text-left border-collapse table-fixed">
+            {/* Desktop / Tablet View: Fluid Table with clean text wrapping */}
+            <div className="hidden md:block w-full overflow-x-auto scrollbar-thin">
+              <table className="w-full text-left border-collapse min-w-[780px]">
                 <thead className="bg-gray-50/80 border-b border-[#DEE2E6] text-xs font-bold text-gray-500">
                   <tr>
-                    <th className="py-3 px-4">Descrição</th>
-                    <th className="py-3 px-3 w-44">{activeTab === 'pagar' ? 'Fornecedor' : 'Cliente'}</th>
+                    <th className="py-3 px-4 min-w-[180px] max-w-[280px]">Descrição</th>
+                    <th className="py-3 px-3 min-w-[150px] max-w-[230px]">{activeTab === 'pagar' ? 'Fornecedor' : 'Cliente'}</th>
                     <th className="py-3 px-2 w-20 text-center whitespace-nowrap">Parcela</th>
                     <th className="py-3 px-3 w-28 whitespace-nowrap">Vencimento</th>
                     <th className="py-3 px-3 w-32 text-right whitespace-nowrap">Valor</th>
@@ -237,13 +275,13 @@ export const ContasView: React.FC = () => {
 
                     return (
                       <tr key={acc.id} className="hover:bg-gray-50/80 transition-colors">
-                        <td className="py-3 px-4 min-w-0">
-                          <span className="font-bold text-[#010102] block truncate" title={acc.descricao}>
+                        <td className="py-3 px-4 min-w-[180px] max-w-[280px]">
+                          <span className="font-bold text-[#010102] block break-words leading-tight" title={acc.descricao}>
                             {acc.descricao}
                           </span>
                         </td>
-                        <td className="py-3 px-3 text-gray-700 font-medium">
-                          <span className="block truncate" title={acc.fornecedorCliente}>
+                        <td className="py-3 px-3 text-gray-700 font-medium min-w-[150px] max-w-[230px]">
+                          <span className="block break-words leading-tight" title={acc.fornecedorCliente}>
                             {acc.fornecedorCliente}
                           </span>
                         </td>
@@ -286,11 +324,7 @@ export const ContasView: React.FC = () => {
                               icon="delete"
                               className="text-gray-400 hover:text-red-600 hover:bg-red-50"
                               title="Excluir Conta"
-                              onClick={() => {
-                                if (confirm(`Deseja excluir "${acc.descricao}"?`)) {
-                                  deleteAccount(acc.id);
-                                }
-                              }}
+                              onClick={() => setAccountToDelete(acc)}
                             />
                           </div>
                         </td>
@@ -329,11 +363,7 @@ export const ContasView: React.FC = () => {
                         label: 'Excluir',
                         icon: 'delete',
                         colorClass: 'bg-red-600 text-white',
-                        onClick: () => {
-                          if (confirm(`Deseja excluir "${acc.descricao}"?`)) {
-                            deleteAccount(acc.id);
-                          }
-                        },
+                        onClick: () => setAccountToDelete(acc),
                       },
                     ]}
                   >
@@ -389,11 +419,7 @@ export const ContasView: React.FC = () => {
                             icon="delete"
                             className="text-gray-400 hover:text-red-600 hover:bg-red-50"
                             title="Excluir Conta"
-                            onClick={() => {
-                              if (confirm(`Deseja excluir "${acc.descricao}"?`)) {
-                                deleteAccount(acc.id);
-                              }
-                            }}
+                            onClick={() => setAccountToDelete(acc)}
                           />
                         </div>
                       </div>
@@ -413,6 +439,45 @@ export const ContasView: React.FC = () => {
           onPageChange={setCurrentPage}
         />
       </div>
+
+      {/* Confirmation Modal for account deletion */}
+      <ConfirmModal
+        isOpen={!!accountToDelete}
+        onClose={() => setAccountToDelete(null)}
+        onConfirm={() => {
+          if (accountToDelete) {
+            deleteAccount(accountToDelete.id);
+            setAccountToDelete(null);
+          }
+        }}
+        title={`Excluir Conta a ${activeTab === 'pagar' ? 'Pagar' : 'Receber'}`}
+        message="Deseja realmente remover esta conta do controle financeiro? As previsões e projeções serão recalculadas."
+        confirmText="Sim, Excluir Conta"
+        cancelText="Cancelar"
+        variant="danger"
+        icon="delete"
+        itemDetails={
+          accountToDelete
+            ? [
+                { label: 'Descrição', value: accountToDelete.descricao },
+                {
+                  label: activeTab === 'pagar' ? 'Fornecedor' : 'Cliente',
+                  value: accountToDelete.fornecedorCliente,
+                },
+                { label: 'Valor', value: formatCurrency(accountToDelete.valor) },
+                { label: 'Vencimento', value: accountToDelete.vencimento },
+                { label: 'Parcela', value: accountToDelete.parcela },
+              ]
+            : []
+        }
+      />
+
+      {/* Import Modal */}
+      <ImportDataModal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+        entityType="contas"
+      />
     </div>
   );
 };

@@ -3,19 +3,25 @@ import { useApp } from '../../context/AppContext';
 import { TransactionType, PaymentMethod } from '../../types';
 import { getTodayDateInputValue, formatDateToBR } from '../../utils/formatters';
 import { Modal, Button, Input, Select, PartnerAutocomplete } from '../common';
+import { transactionFormSchema, validateForm } from '../../schemas/validationSchemas';
 
 export const NovoLancamentoModal: React.FC = () => {
   const {
     isNovoLancamentoOpen,
     setIsNovoLancamentoOpen,
     novoLancamentoInitialTab,
+    editingTransaction,
+    setEditingTransaction,
     addTransaction,
+    updateTransaction,
     categories,
     employees,
     bankAccounts,
+    showToast,
   } = useApp();
 
   const [tipo, setTipo] = useState<TransactionType>('entrada');
+  const [descricao, setDescricao] = useState('');
   const [valor, setValor] = useState('1500,00');
   const [categoria, setCategoria] = useState('Receita de Serviços');
   const [responsavel, setResponsavel] = useState('João Silva (Engenheiro)');
@@ -26,23 +32,71 @@ export const NovoLancamentoModal: React.FC = () => {
   const [observacao, setObservacao] = useState('');
   const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+
+  const brToIso = (brDate: string) => {
+    if (!brDate) return getTodayDateInputValue();
+    if (brDate.includes('-')) return brDate;
+    const parts = brDate.split('/');
+    if (parts.length === 3) {
+      const [d, m, y] = parts;
+      return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+    }
+    return getTodayDateInputValue();
+  };
 
   useEffect(() => {
     if (isNovoLancamentoOpen) {
-      setTipo(novoLancamentoInitialTab);
-      if (novoLancamentoInitialTab === 'entrada') {
-        setCategoria('Receita de Serviços');
-        setClienteFornecedor('Construtora Alpha Ltda.');
+      setFormErrors({});
+      setIsSubmitting(false);
+
+      if (editingTransaction) {
+        setTipo(editingTransaction.tipo);
+        setDescricao(editingTransaction.descricao || '');
+        setValor(Number(editingTransaction.valor || 0).toFixed(2).replace('.', ','));
+        setCategoria(editingTransaction.categoria || 'Receita de Serviços');
+        setResponsavel(editingTransaction.responsavel || 'João Silva (Engenheiro)');
+        setContaFinanceira(editingTransaction.contaFinanceira || 'Caixa Principal Usina');
+        setData(brToIso(editingTransaction.data));
+        setClienteFornecedor(editingTransaction.clienteFornecedor || '');
+        setFormaPagamento(editingTransaction.formaPagamento || 'Transferência Bancária (PIX)');
+        setObservacao(editingTransaction.observacao || '');
+        setUploadedFileName(editingTransaction.comprovanteNome || null);
       } else {
-        setCategoria('Matéria Prima (CAP / Brita)');
-        setClienteFornecedor('Petrobras Distribuidora S.A.');
+        setTipo(novoLancamentoInitialTab);
+        setDescricao('');
+        setObservacao('');
+        setUploadedFileName(null);
+        setData(getTodayDateInputValue());
+        if (novoLancamentoInitialTab === 'entrada') {
+          setCategoria('Receita de Serviços');
+          setClienteFornecedor('Construtora Alpha Ltda.');
+          setValor('1500,00');
+        } else {
+          setCategoria('Matéria Prima (CAP / Brita)');
+          setClienteFornecedor('Petrobras Distribuidora S.A.');
+          setValor('1500,00');
+        }
       }
     }
-  }, [isNovoLancamentoOpen, novoLancamentoInitialTab]);
+  }, [isNovoLancamentoOpen, novoLancamentoInitialTab, editingTransaction]);
+
+  const handleClose = () => {
+    setIsNovoLancamentoOpen(false);
+    setEditingTransaction(null);
+  };
 
   const handleNumericInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value.replace(/[^\d,]/g, '');
     setValor(val);
+    if (formErrors.valor) {
+      setFormErrors((prev) => {
+        const next = { ...prev };
+        delete next.valor;
+        return next;
+      });
+    }
   };
 
   const handleFileDrop = (e: React.DragEvent<HTMLDivElement>) => {
@@ -61,24 +115,65 @@ export const NovoLancamentoModal: React.FC = () => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const cleanNum = parseFloat(valor.replace('.', '').replace(',', '.'));
-    const finalValue = isNaN(cleanNum) || cleanNum <= 0 ? 100 : cleanNum;
+    if (isSubmitting) return;
 
-    addTransaction({
-      data: formatDateToBR(data),
-      descricao: observacao.trim() || `${categoria} - ${clienteFornecedor}`,
+    const formattedData = data.includes('/') ? data : formatDateToBR(data);
+
+    const validation = validateForm(transactionFormSchema, {
+      tipo,
+      data: formattedData,
+      valor,
       categoria,
       responsavel,
-      formaPagamento,
-      valor: finalValue,
-      tipo,
-      clienteFornecedor,
       contaFinanceira,
+      clienteFornecedor,
+      formaPagamento,
       observacao,
       comprovanteNome: uploadedFileName || undefined,
     });
 
-    setIsNovoLancamentoOpen(false);
+    if (!validation.success) {
+      setFormErrors(validation.errors);
+      showToast(validation.firstError, 'error');
+      return;
+    }
+
+    setFormErrors({});
+    setIsSubmitting(true);
+
+    const finalDescricao = descricao.trim() || observacao.trim() || `${categoria} - ${clienteFornecedor}`;
+
+    if (editingTransaction) {
+      updateTransaction(editingTransaction.id, {
+        data: validation.data.data,
+        descricao: finalDescricao,
+        categoria: validation.data.categoria,
+        responsavel: validation.data.responsavel,
+        formaPagamento: validation.data.formaPagamento as PaymentMethod,
+        valor: validation.data.valor,
+        tipo: validation.data.tipo,
+        clienteFornecedor: validation.data.clienteFornecedor,
+        contaFinanceira: validation.data.contaFinanceira,
+        observacao: validation.data.observacao,
+        comprovanteNome: validation.data.comprovanteNome,
+      });
+      handleClose();
+    } else {
+      addTransaction({
+        data: validation.data.data,
+        descricao: finalDescricao,
+        categoria: validation.data.categoria,
+        responsavel: validation.data.responsavel,
+        formaPagamento: validation.data.formaPagamento as PaymentMethod,
+        valor: validation.data.valor,
+        tipo: validation.data.tipo,
+        clienteFornecedor: validation.data.clienteFornecedor,
+        contaFinanceira: validation.data.contaFinanceira,
+        observacao: validation.data.observacao,
+        comprovanteNome: validation.data.comprovanteNome,
+      });
+      handleClose();
+    }
   };
 
   const availableCategories = categories.filter((c) =>
@@ -88,47 +183,63 @@ export const NovoLancamentoModal: React.FC = () => {
   return (
     <Modal
       isOpen={isNovoLancamentoOpen}
-      onClose={() => setIsNovoLancamentoOpen(false)}
+      onClose={handleClose}
+      size="xl"
       title={
         <div className="flex items-center gap-3">
           <div
             className={`w-9 h-9 rounded-xl flex items-center justify-center ${
-              tipo === 'entrada'
+              editingTransaction
+                ? 'bg-blue-100 text-blue-700'
+                : tipo === 'entrada'
                 ? 'bg-[#2F9E44]/15 text-[#2F9E44]'
                 : 'bg-[#F2A93B]/20 text-[#835400]'
             }`}
           >
             <span className="material-symbols-outlined text-[20px]">
-              {tipo === 'entrada' ? 'add_circle' : 'remove_circle'}
+              {editingTransaction ? 'edit_note' : tipo === 'entrada' ? 'add_circle' : 'remove_circle'}
             </span>
           </div>
           <div>
             <h3 className="text-lg font-bold text-[#010102]">
-              {tipo === 'entrada' ? 'Nova Entrada Financeira' : 'Nova Saída Financeira'}
+              {editingTransaction
+                ? 'Editar Lançamento Contábil'
+                : tipo === 'entrada'
+                ? 'Nova Entrada Financeira'
+                : 'Nova Saída Financeira'}
             </h3>
             <p className="text-xs text-gray-500">
-              Registrar movimentação no Livro Caixa da usina de asfalto.
+              {editingTransaction
+                ? `Editando lançamento #${editingTransaction.id} de ${editingTransaction.data}`
+                : 'Registrar movimentação no Livro Caixa da usina de asfalto.'}
             </p>
           </div>
         </div>
       }
-      size="lg"
       footer={
         <>
           <Button
             variant="secondary"
             size="sm"
-            onClick={() => setIsNovoLancamentoOpen(false)}
+            onClick={handleClose}
+            disabled={isSubmitting}
           >
             Cancelar
           </Button>
           <Button
-            variant={tipo === 'entrada' ? 'success' : 'warning'}
+            variant={editingTransaction ? 'primary' : tipo === 'entrada' ? 'success' : 'warning'}
             size="sm"
-            icon="check"
+            icon={editingTransaction ? 'save' : 'check'}
             onClick={handleSubmit}
+            disabled={isSubmitting}
           >
-            {tipo === 'entrada' ? 'Confirmar Entrada' : 'Confirmar Saída'}
+            {isSubmitting
+              ? 'Gravando...'
+              : editingTransaction
+              ? 'Salvar Alterações'
+              : tipo === 'entrada'
+              ? 'Confirmar Entrada'
+              : 'Confirmar Saída'}
           </Button>
         </>
       }
@@ -140,7 +251,7 @@ export const NovoLancamentoModal: React.FC = () => {
             type="button"
             onClick={() => {
               setTipo('entrada');
-              setCategoria('Receita de Serviços');
+              if (!editingTransaction) setCategoria('Receita de Serviços');
             }}
             className={`py-2.5 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
               tipo === 'entrada'
@@ -156,7 +267,7 @@ export const NovoLancamentoModal: React.FC = () => {
             type="button"
             onClick={() => {
               setTipo('saida');
-              setCategoria('Matéria Prima (CAP / Brita)');
+              if (!editingTransaction) setCategoria('Matéria Prima (CAP / Brita)');
             }}
             className={`py-2.5 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
               tipo === 'saida'
@@ -170,12 +281,21 @@ export const NovoLancamentoModal: React.FC = () => {
         </div>
 
         {/* Big Amount Field */}
-        <div className="p-4 rounded-2xl bg-gradient-to-r from-[#FDFBF7] to-white border border-[#DEE2E6] flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div
+          className={`p-4 rounded-2xl bg-gradient-to-r from-[#FDFBF7] to-white border flex flex-col sm:flex-row items-center justify-between gap-4 ${
+            formErrors.valor ? 'border-red-500 ring-2 ring-red-100' : 'border-[#DEE2E6]'
+          }`}
+        >
           <div>
             <label className="text-xs font-bold uppercase tracking-wider text-gray-500 block">
               Valor do Lançamento *
             </label>
             <span className="text-xs text-gray-400">Informe o valor total em Reais (BRL)</span>
+            {formErrors.valor && (
+              <span className="text-xs text-red-600 font-semibold block mt-1">
+                {formErrors.valor}
+              </span>
+            )}
           </div>
 
           <div className="relative w-full sm:w-64">
@@ -189,10 +309,24 @@ export const NovoLancamentoModal: React.FC = () => {
               onChange={handleNumericInput}
               placeholder="0,00"
               required
-              className="w-full pl-10 pr-4 py-2.5 bg-white border border-[#DEE2E6] rounded-xl text-xl font-black text-[#010102] focus:border-[#835400] focus:ring-2 focus:ring-[#835400]/20 focus:outline-none tabular-nums text-right"
+              className={`w-full pl-10 pr-4 py-2.5 bg-white border rounded-xl text-xl font-black text-[#010102] focus:ring-2 focus:outline-none tabular-nums text-right ${
+                formErrors.valor
+                  ? 'border-red-500 focus:border-red-500 focus:ring-red-100'
+                  : 'border-[#DEE2E6] focus:border-[#835400] focus:ring-[#835400]/20'
+              }`}
             />
           </div>
         </div>
+
+        {/* Descrição Principal */}
+        <Input
+          label="Descrição do Lançamento"
+          placeholder="Ex: TINTA, Fornecimento CBUQ, Abastecimento de Diesel, etc."
+          value={descricao}
+          onChange={(e) => setDescricao(e.target.value)}
+          leftIcon="edit_note"
+          helperText="Identificação rápida na listagem financeira (se em branco, usará Categoria + Favorecido)"
+        />
 
         {/* Form Inputs Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -200,7 +334,17 @@ export const NovoLancamentoModal: React.FC = () => {
             label="Data da Operação *"
             type="date"
             value={data}
-            onChange={(e) => setData(e.target.value)}
+            onChange={(e) => {
+              setData(e.target.value);
+              if (formErrors.data) {
+                setFormErrors((prev) => {
+                  const n = { ...prev };
+                  delete n.data;
+                  return n;
+                });
+              }
+            }}
+            error={formErrors.data}
             required
             leftIcon="event"
           />
@@ -209,6 +353,7 @@ export const NovoLancamentoModal: React.FC = () => {
             label="Categoria Contábil *"
             value={categoria}
             onChange={(e) => setCategoria(e.target.value)}
+            error={formErrors.categoria}
             leftIcon="category"
           >
             {availableCategories.map((c) => (
@@ -219,14 +364,23 @@ export const NovoLancamentoModal: React.FC = () => {
           </Select>
 
           <PartnerAutocomplete
-            label={tipo === 'entrada' ? 'Cliente / Contratante' : 'Favorecido / Fornecedor'}
+            label={tipo === 'entrada' ? 'Cliente / Contratante *' : 'Favorecido / Fornecedor *'}
             placeholder={
               tipo === 'entrada'
                 ? 'Pesquise cliente por nome, CNPJ, obra...'
                 : 'Pesquise fornecedor por nome, CNPJ, insumo...'
             }
             value={clienteFornecedor}
-            onChange={setClienteFornecedor}
+            onChange={(val) => {
+              setClienteFornecedor(val);
+              if (formErrors.clienteFornecedor) {
+                setFormErrors((prev) => {
+                  const n = { ...prev };
+                  delete n.clienteFornecedor;
+                  return n;
+                });
+              }
+            }}
             onSelectPartner={(partner) => {
               setClienteFornecedor(partner.nome);
               if (partner.categoriaPadrao) {
@@ -238,6 +392,7 @@ export const NovoLancamentoModal: React.FC = () => {
             }}
             partnerType={tipo === 'entrada' ? 'cliente' : 'fornecedor'}
             leftIcon="business"
+            error={formErrors.clienteFornecedor}
             helperText="Pesquise no histórico e cadastros ou digite um novo parceiro"
           />
 
@@ -245,6 +400,7 @@ export const NovoLancamentoModal: React.FC = () => {
             label="Responsável / Autorizador"
             value={responsavel}
             onChange={(e) => setResponsavel(e.target.value)}
+            error={formErrors.responsavel}
             leftIcon="person"
           >
             {employees.map((e) => (

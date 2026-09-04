@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useApp } from '../../context/AppContext';
 import { formatCurrency } from '../../utils/formatters';
+import { exportTransactionsCsv } from '../../utils/exportUtils';
 import { Transaction } from '../../types';
 import {
   Button,
@@ -10,19 +11,39 @@ import {
   EmptyState,
   Modal,
   SwipeableRow,
+  ConfirmModal,
 } from '../common';
+import { ImportDataModal } from '../common/ImportDataModal';
 
 export const LancamentosView: React.FC = () => {
   const {
     transactions,
     deleteTransaction,
     openNovoLancamentoWithTab,
+    openEditLancamento,
+    deduplicateTransactions,
     categories,
     employees,
     globalSearch,
     showToast,
     permissions,
+    letterheadSettings,
   } = useApp();
+
+  // Compute duplicate transactions count for transparency
+  const duplicateCount = useMemo(() => {
+    const seen = new Set<string>();
+    let count = 0;
+    for (const t of transactions) {
+      const key = `${t.descricao.trim().toLowerCase()}|${(t.clienteFornecedor || '').trim().toLowerCase()}|${t.data}|${Number(t.valor).toFixed(2)}|${t.tipo}`;
+      if (seen.has(key)) {
+        count++;
+      } else {
+        seen.add(key);
+      }
+    }
+    return count;
+  }, [transactions]);
 
   // Filters
   const [dataInicio, setDataInicio] = useState('');
@@ -33,13 +54,42 @@ export const LancamentosView: React.FC = () => {
   const [localSearch, setLocalSearch] = useState('');
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [selectedTxForDetail, setSelectedTxForDetail] = useState<Transaction | null>(null);
+  const [txToDelete, setTxToDelete] = useState<Transaction | null>(null);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
+  // Helper to parse date format (DD/MM/YYYY or YYYY-MM-DD) into timestamp
+  const parseDateToTimestamp = (dateStr: string) => {
+    if (!dateStr) return null;
+    if (dateStr.includes('/')) {
+      const parts = dateStr.split('/');
+      if (parts.length === 3) {
+        const d = parseInt(parts[0], 10);
+        const m = parseInt(parts[1], 10) - 1;
+        const y = parseInt(parts[2], 10);
+        return new Date(y, m, d).getTime();
+      }
+    } else if (dateStr.includes('-')) {
+      const parts = dateStr.split('-');
+      if (parts.length === 3) {
+        const y = parseInt(parts[0], 10);
+        const m = parseInt(parts[1], 10) - 1;
+        const d = parseInt(parts[2], 10);
+        return new Date(y, m, d).getTime();
+      }
+    }
+    const timestamp = Date.parse(dateStr);
+    return isNaN(timestamp) ? null : timestamp;
+  };
+
   // Filtered transactions
   const filteredTransactions = useMemo(() => {
+    const startTime = dataInicio ? parseDateToTimestamp(dataInicio) : null;
+    const endTime = dataFim ? parseDateToTimestamp(dataFim) : null;
+
     return transactions.filter((tx) => {
       const matchGlobal = globalSearch
         ? tx.descricao.toLowerCase().includes(globalSearch.toLowerCase()) ||
@@ -63,7 +113,12 @@ export const LancamentosView: React.FC = () => {
 
       const matchTipo = selectedTipo === 'todos' || tx.tipo === selectedTipo;
 
-      return matchGlobal && matchLocal && matchCat && matchResp && matchTipo;
+      const txTime = parseDateToTimestamp(tx.data);
+      const matchDate =
+        (!startTime || (txTime !== null && txTime >= startTime)) &&
+        (!endTime || (txTime !== null && txTime <= endTime));
+
+      return matchGlobal && matchLocal && matchCat && matchResp && matchTipo && matchDate;
     });
   }, [
     transactions,
@@ -72,6 +127,8 @@ export const LancamentosView: React.FC = () => {
     selectedCategoria,
     selectedResponsavel,
     selectedTipo,
+    dataInicio,
+    dataFim,
   ]);
 
   const totalPages = Math.ceil(filteredTransactions.length / itemsPerPage) || 1;
@@ -96,25 +153,7 @@ export const LancamentosView: React.FC = () => {
 
   // Export to CSV
   const handleExportCSV = () => {
-    const headers = ['Data', 'Tipo', 'Descrição', 'Categoria', 'Responsável', 'Forma de Pagamento', 'Valor'];
-    const rows = filteredTransactions.map((t) => [
-      t.data,
-      t.tipo.toUpperCase(),
-      `"${t.descricao}"`,
-      `"${t.categoria}"`,
-      `"${t.responsavel}"`,
-      `"${t.formaPagamento}"`,
-      t.valor,
-    ]);
-
-    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(';'), ...rows.map((e) => e.join(';'))].join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `lancamentos_asphaltpro_${Date.now()}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    exportTransactionsCsv(filteredTransactions);
     showToast('Lançamentos exportados em CSV com sucesso!', 'success');
   };
 
@@ -130,8 +169,42 @@ export const LancamentosView: React.FC = () => {
 
   return (
     <div className="flex-1 p-4 sm:p-6 lg:p-8 max-w-[1440px] mx-auto w-full flex flex-col gap-6 animate-in fade-in duration-200">
+      {/* Official Print Header (Visible ONLY during print/PDF generation) */}
+      <div className="print-only mb-6 border-b-2 border-black pb-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            {letterheadSettings?.logoUrl ? (
+              <img src={letterheadSettings.logoUrl} alt="Logo" className="h-12 max-w-[140px] object-contain" />
+            ) : (
+              <div className="w-10 h-10 bg-black text-[#F2A93B] rounded flex items-center justify-center font-black text-sm">
+                AP
+              </div>
+            )}
+            <div>
+              <h1 className="text-base font-bold uppercase tracking-wider text-black">
+                {letterheadSettings?.nomeEmpresa || 'AsphaltPro Pavimentação & Usina'}
+              </h1>
+              <p className="text-[11px] text-gray-700">
+                CNPJ: {letterheadSettings?.cnpj || '12.345.678/0001-90'} • {letterheadSettings?.enderecoUsina || 'Distrito Industrial'}
+              </p>
+            </div>
+          </div>
+          <div className="text-right">
+            <h2 className="text-sm font-bold uppercase tracking-wide text-black">
+              Extrato Financeiro de Caixa
+            </h2>
+            <p className="text-xs text-gray-700">
+              Registros listados: <strong className="font-semibold">{filteredTransactions.length}</strong>
+            </p>
+            <p className="text-[10px] text-gray-500">
+              Gerado em: {new Date().toLocaleDateString('pt-BR')} às {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+            </p>
+          </div>
+        </div>
+      </div>
+
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 print:hidden">
         <div className="min-w-0">
           <h2 className="text-xl sm:text-2xl lg:text-3xl font-bold text-[#010102] tracking-tight">
             Lançamentos Financeiros (Livro Caixa)
@@ -143,10 +216,31 @@ export const LancamentosView: React.FC = () => {
 
         <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap">
           <Button
+            variant="outline"
+            icon="print"
+            size="sm"
+            onClick={() => window.print()}
+            title="Imprimir extrato filtrado ou salvar em PDF"
+          >
+            Imprimir Extrato (PDF)
+          </Button>
+
+          <Button
+            variant="outline"
+            icon="upload_file"
+            size="sm"
+            onClick={() => setIsImportModalOpen(true)}
+            title="Importar lançamentos em lote a partir de planilha CSV"
+          >
+            Importar CSV
+          </Button>
+
+          <Button
             variant="secondary"
             icon="download"
             size="sm"
             onClick={handleExportCSV}
+            title="Exportar lançamentos filtrados para CSV"
           >
             Exportar CSV
           </Button>
@@ -312,10 +406,10 @@ export const LancamentosView: React.FC = () => {
 
         {/* Collapsible Advanced Filters Area */}
         {showAdvancedFilters && (
-          <div className="pt-3 border-t border-gray-100 grid grid-cols-1 sm:grid-cols-3 gap-3 animate-in fade-in duration-150">
+          <div className="pt-3 border-t border-gray-100 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 animate-in fade-in duration-150">
             {/* Categoria Completa */}
             <div className="flex flex-col gap-1 min-w-0">
-              <label className="text-xs font-bold text-[#010102]">Todas as Categorias</label>
+              <label className="text-xs font-bold text-[#010102]">Categoria</label>
               <select
                 value={selectedCategoria}
                 onChange={(e) => {
@@ -353,14 +447,28 @@ export const LancamentosView: React.FC = () => {
               </select>
             </div>
 
-            {/* Periodo / Datas */}
+            {/* Data Inicial */}
             <div className="flex flex-col gap-1 min-w-0">
-              <label className="text-xs font-bold text-[#010102]">Período (Data Inicial)</label>
+              <label className="text-xs font-bold text-[#010102]">Data Inicial</label>
               <input
                 type="date"
                 value={dataInicio}
                 onChange={(e) => {
                   setDataInicio(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="w-full p-2 rounded-xl border border-[#DEE2E6] text-xs text-[#010102] bg-white focus:border-[#835400] focus:outline-none"
+              />
+            </div>
+
+            {/* Data Final */}
+            <div className="flex flex-col gap-1 min-w-0">
+              <label className="text-xs font-bold text-[#010102]">Data Final</label>
+              <input
+                type="date"
+                value={dataFim}
+                onChange={(e) => {
+                  setDataFim(e.target.value);
                   setCurrentPage(1);
                 }}
                 className="w-full p-2 rounded-xl border border-[#DEE2E6] text-xs text-[#010102] bg-white focus:border-[#835400] focus:outline-none"
@@ -373,7 +481,8 @@ export const LancamentosView: React.FC = () => {
           selectedCategoria !== 'Todas as Categorias' ||
           selectedResponsavel !== 'Todos os Responsáveis' ||
           selectedTipo !== 'todos' ||
-          dataInicio) && (
+          dataInicio ||
+          dataFim) && (
           <div className="flex items-center justify-between pt-2 border-t border-gray-100 text-xs text-gray-500">
             <span>Filtros ativos aplicados</span>
             <button
@@ -385,6 +494,34 @@ export const LancamentosView: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Duplication Warning Banner if duplicates are detected */}
+      {duplicateCount > 0 && (
+        <div className="bg-amber-50 border border-amber-300 p-4 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-amber-900 shadow-xs">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-200/70 border border-amber-300 flex items-center justify-center text-[#835400] shrink-0">
+              <span className="material-symbols-outlined text-[22px]">content_copy</span>
+            </div>
+            <div>
+              <span className="font-bold text-sm block">
+                Atenção: {duplicateCount} {duplicateCount === 1 ? 'lançamento potencialmente duplicado identificado' : 'lançamentos potencialmente duplicados identificados'}
+              </span>
+              <span className="text-xs text-amber-800">
+                Lançamentos idênticos gerados por reaberturas ou cliques repetidos. Você pode unificá-los com segurança.
+              </span>
+            </div>
+          </div>
+          <Button
+            variant="primary"
+            size="sm"
+            icon="auto_fix_high"
+            className="shrink-0 bg-[#835400] hover:bg-[#6b4400] text-white border-none"
+            onClick={() => deduplicateTransactions()}
+          >
+            Limpar Duplicados Agora
+          </Button>
+        </div>
+      )}
 
       {/* Data Table Card */}
       <div className="bg-white rounded-2xl border border-[#DEE2E6] overflow-hidden flex flex-col shadow-xs min-w-0">
@@ -399,19 +536,19 @@ export const LancamentosView: React.FC = () => {
           />
         ) : (
           <>
-            {/* Desktop / Tablet View: Fluid Table with zero horizontal scrolling */}
-            <div className="hidden md:block w-full">
-              <table className="w-full text-left border-collapse table-fixed">
+            {/* Desktop / Tablet View: Fluid Table with clean text wrapping */}
+            <div className="hidden md:block w-full overflow-x-auto scrollbar-thin">
+              <table className="w-full text-left border-collapse min-w-[880px]">
                 <thead className="bg-gray-50/80 border-b border-[#DEE2E6] text-xs font-bold text-gray-500">
                   <tr>
-                    <th className="py-3 px-3 w-24">Data</th>
-                    <th className="py-3 px-2 w-24">Tipo</th>
-                    <th className="py-3 px-3">Descrição / Favorecido</th>
-                    <th className="py-3 px-3 w-32">Categoria</th>
-                    <th className="py-3 px-3 w-28 hidden lg:table-cell">Responsável</th>
-                    <th className="py-3 px-3 w-28 hidden xl:table-cell">Pagamento</th>
-                    <th className="py-3 px-3 w-32 text-right">Valor</th>
-                    <th className="py-3 px-2 w-20 text-center">Ações</th>
+                    <th className="py-3 px-3 w-24 whitespace-nowrap">Data</th>
+                    <th className="py-3 px-2 w-24 text-center whitespace-nowrap">Tipo</th>
+                    <th className="py-3 px-3 min-w-[180px] max-w-[280px]">Descrição / Favorecido</th>
+                    <th className="py-3 px-3 min-w-[130px] max-w-[190px]">Categoria</th>
+                    <th className="py-3 px-3 min-w-[110px] max-w-[160px] hidden lg:table-cell">Responsável</th>
+                    <th className="py-3 px-3 min-w-[110px] max-w-[160px] hidden xl:table-cell">Pagamento</th>
+                    <th className="py-3 px-3 w-32 text-right whitespace-nowrap">Valor</th>
+                    <th className="py-3 px-2 w-28 text-center whitespace-nowrap">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="text-xs divide-y divide-[#DEE2E6]">
@@ -424,31 +561,31 @@ export const LancamentosView: React.FC = () => {
                       <td className="py-3 px-3 whitespace-nowrap text-gray-500 font-mono text-[11px]">
                         {tx.data}
                       </td>
-                      <td className="py-3 px-2 whitespace-nowrap">
+                      <td className="py-3 px-2 text-center whitespace-nowrap">
                         <StatusBadge status={tx.tipo} size="xs" />
                       </td>
-                      <td className="py-3 px-3 min-w-0">
-                        <div className="font-bold text-[#010102] truncate" title={tx.descricao}>
+                      <td className="py-3 px-3 min-w-[180px] max-w-[280px]">
+                        <div className="font-bold text-[#010102] break-words leading-tight" title={tx.descricao}>
                           {tx.descricao}
                         </div>
                         {tx.clienteFornecedor && (
                           <div
-                            className="text-[11px] text-gray-500 font-normal truncate"
+                            className="text-[11px] text-gray-500 font-normal break-words leading-tight mt-0.5"
                             title={tx.clienteFornecedor}
                           >
                             {tx.clienteFornecedor}
                           </div>
                         )}
                       </td>
-                      <td className="py-3 px-3">
-                        <span className="bg-gray-100 px-2 py-0.5 rounded text-gray-700 text-[10px] font-bold uppercase tracking-wider border border-gray-200 inline-block truncate max-w-full">
+                      <td className="py-3 px-3 min-w-[130px] max-w-[190px]">
+                        <span className="bg-gray-100 px-2 py-0.5 rounded text-gray-700 text-[10px] font-bold uppercase tracking-wider border border-gray-200 inline-block break-words leading-tight">
                           {tx.categoria}
                         </span>
                       </td>
-                      <td className="py-3 px-3 text-gray-600 font-medium truncate hidden lg:table-cell" title={tx.responsavel}>
+                      <td className="py-3 px-3 text-gray-600 font-medium break-words leading-tight hidden lg:table-cell" title={tx.responsavel}>
                         {tx.responsavel}
                       </td>
-                      <td className="py-3 px-3 text-gray-500 text-[11px] truncate hidden xl:table-cell" title={tx.formaPagamento}>
+                      <td className="py-3 px-3 text-gray-500 text-[11px] break-words leading-tight hidden xl:table-cell" title={tx.formaPagamento}>
                         {tx.formaPagamento}
                       </td>
                       <td
@@ -473,14 +610,18 @@ export const LancamentosView: React.FC = () => {
                           <Button
                             variant="ghost"
                             size="xs"
+                            icon="edit"
+                            className="text-gray-500 hover:text-[#835400] hover:bg-amber-50"
+                            title="Editar lançamento"
+                            onClick={() => openEditLancamento(tx)}
+                          />
+                          <Button
+                            variant="ghost"
+                            size="xs"
                             icon="delete"
                             className="text-gray-400 hover:text-red-600 hover:bg-red-50"
                             title="Excluir lançamento"
-                            onClick={() => {
-                              if (confirm(`Excluir lançamento "${tx.descricao}" no valor de ${formatCurrency(tx.valor)}?`)) {
-                                deleteTransaction(tx.id);
-                              }
-                            }}
+                            onClick={() => setTxToDelete(tx)}
                           />
                         </div>
                       </td>
@@ -512,14 +653,16 @@ export const LancamentosView: React.FC = () => {
                       onClick: () => setSelectedTxForDetail(tx),
                     },
                     {
+                      label: 'Editar',
+                      icon: 'edit',
+                      colorClass: 'bg-[#835400] text-white',
+                      onClick: () => openEditLancamento(tx),
+                    },
+                    {
                       label: 'Excluir',
                       icon: 'delete',
                       colorClass: 'bg-red-600 text-white',
-                      onClick: () => {
-                        if (confirm(`Excluir lançamento "${tx.descricao}" no valor de ${formatCurrency(tx.valor)}?`)) {
-                          deleteTransaction(tx.id);
-                        }
-                      },
+                      onClick: () => setTxToDelete(tx),
                     },
                   ]}
                 >
@@ -541,13 +684,13 @@ export const LancamentosView: React.FC = () => {
 
                     {/* Middle: Descrição + Favorecido */}
                     <div>
-                      <h4 className="text-xs font-bold text-[#010102] leading-snug">
+                      <h4 className="text-xs font-bold text-[#010102] leading-snug break-words">
                         {tx.descricao}
                       </h4>
                       {tx.clienteFornecedor && (
-                        <p className="text-[11px] text-gray-600 mt-0.5 flex items-center gap-1">
-                          <span className="material-symbols-outlined text-[13px] text-gray-400">person</span>
-                          {tx.clienteFornecedor}
+                        <p className="text-[11px] text-gray-600 mt-0.5 flex items-center gap-1 break-words">
+                          <span className="material-symbols-outlined text-[13px] text-gray-400 shrink-0">person</span>
+                          <span>{tx.clienteFornecedor}</span>
                         </p>
                       )}
                     </div>
@@ -574,14 +717,18 @@ export const LancamentosView: React.FC = () => {
                         <Button
                           variant="ghost"
                           size="xs"
+                          icon="edit"
+                          className="text-gray-500 hover:text-[#835400] hover:bg-amber-50"
+                          title="Editar lançamento"
+                          onClick={() => openEditLancamento(tx)}
+                        />
+                        <Button
+                          variant="ghost"
+                          size="xs"
                           icon="delete"
                           className="text-gray-400 hover:text-red-600 hover:bg-red-50"
                           title="Excluir lançamento"
-                          onClick={() => {
-                            if (confirm(`Excluir lançamento "${tx.descricao}" no valor de ${formatCurrency(tx.valor)}?`)) {
-                              deleteTransaction(tx.id);
-                            }
-                          }}
+                          onClick={() => setTxToDelete(tx)}
                         />
                       </div>
                     </div>
@@ -617,17 +764,34 @@ export const LancamentosView: React.FC = () => {
           footer={
             <>
               <Button
+                variant="outline"
+                size="sm"
+                icon="print"
+                onClick={() => window.print()}
+                title="Imprimir comprovante contábil deste lançamento"
+              >
+                Imprimir Recibo (PDF)
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                icon="edit"
+                className="bg-[#835400] hover:bg-[#6b4400] text-white border-none"
+                onClick={() => {
+                  const tx = selectedTxForDetail;
+                  setSelectedTxForDetail(null);
+                  openEditLancamento(tx);
+                }}
+              >
+                Editar Lançamento
+              </Button>
+              <Button
                 variant="danger"
                 size="sm"
                 icon="delete"
-                onClick={() => {
-                  if (confirm('Deseja excluir este lançamento? O saldo em caixa será recalculado.')) {
-                    deleteTransaction(selectedTxForDetail.id);
-                    setSelectedTxForDetail(null);
-                  }
-                }}
+                onClick={() => setTxToDelete(selectedTxForDetail)}
               >
-                Excluir Lançamento
+                Excluir
               </Button>
               <Button
                 variant="secondary"
@@ -698,6 +862,51 @@ export const LancamentosView: React.FC = () => {
           </div>
         </Modal>
       )}
+
+      {/* Confirmation Modal for deletion */}
+      <ConfirmModal
+        isOpen={!!txToDelete}
+        onClose={() => setTxToDelete(null)}
+        onConfirm={() => {
+          if (txToDelete) {
+            deleteTransaction(txToDelete.id);
+            if (selectedTxForDetail?.id === txToDelete.id) {
+              setSelectedTxForDetail(null);
+            }
+            setTxToDelete(null);
+          }
+        }}
+        title="Excluir Lançamento Contábil"
+        message="Tem certeza de que deseja excluir este lançamento? Esta ação recalcula automaticamente o saldo de caixa, relatórios de DRE e histórico contábil."
+        confirmText="Sim, Excluir Lançamento"
+        cancelText="Cancelar"
+        variant="danger"
+        icon="delete"
+        itemDetails={
+          txToDelete
+            ? [
+                { label: 'Descrição', value: txToDelete.descricao },
+                {
+                  label: 'Tipo',
+                  value: txToDelete.tipo === 'entrada' ? 'Entrada / Receita (+)' : 'Saída / Despesa (-)',
+                },
+                { label: 'Valor', value: formatCurrency(txToDelete.valor) },
+                { label: 'Data', value: txToDelete.data },
+                { label: 'Categoria', value: txToDelete.categoria },
+                ...(txToDelete.clienteFornecedor
+                  ? [{ label: 'Favorecido', value: txToDelete.clienteFornecedor }]
+                  : []),
+              ]
+            : []
+        }
+      />
+
+      {/* Import Modal */}
+      <ImportDataModal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+        entityType="transacoes"
+      />
     </div>
   );
 };

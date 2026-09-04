@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { SystemUser, UserRole } from '../../types';
 import { Button } from '../common/Button';
+import { ConfirmModal } from '../common/ConfirmModal';
 import { ROLE_PERMISSIONS_MAP } from '../../data/initialData';
 
 const ROLE_INFO: Record<UserRole, { label: string; badgeBg: string; badgeText: string; desc: string; icon: string }> = {
@@ -58,6 +59,7 @@ export const UsuariosViewTab: React.FC = () => {
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<SystemUser | null>(null);
+  const [userToDelete, setUserToDelete] = useState<SystemUser | null>(null);
 
   // Form State
   const [name, setName] = useState('');
@@ -186,7 +188,7 @@ export const UsuariosViewTab: React.FC = () => {
           <div>
             <h3 className="text-base font-bold text-[#010102] flex items-center gap-2">
               <span className="material-symbols-outlined text-[#835400]">group</span>
-              Usuários do Sistema & Níveis de Acesso (RBAC)
+              Usuários do Sistema & Níveis de Acesso
             </h3>
             <p className="text-xs text-gray-600 mt-0.5">
               Gerencie a equipe da usina, atribua perfis de segurança e controle quem tem acesso a saldos bancários e orçamentos.
@@ -441,13 +443,9 @@ export const UsuariosViewTab: React.FC = () => {
                           </button>
 
                           <button
-                            onClick={() => {
-                              if (confirm(`Deseja realmente remover o usuário ${u.name}?`)) {
-                                deleteSystemUser(u.id);
-                              }
-                            }}
+                            onClick={() => setUserToDelete(u)}
                             disabled={systemUsers.length <= 1}
-                            className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg disabled:opacity-30 transition-colors"
+                            className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg disabled:opacity-30 transition-colors cursor-pointer"
                             title="Excluir Usuário"
                           >
                             <span className="material-symbols-outlined text-[18px]">delete</span>
@@ -551,13 +549,9 @@ export const UsuariosViewTab: React.FC = () => {
                       </button>
 
                       <button
-                        onClick={() => {
-                          if (confirm(`Deseja realmente remover o usuário ${u.name}?`)) {
-                            deleteSystemUser(u.id);
-                          }
-                        }}
+                        onClick={() => setUserToDelete(u)}
                         disabled={systemUsers.length <= 1}
-                        className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg disabled:opacity-30 transition-colors"
+                        className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg disabled:opacity-30 transition-colors cursor-pointer"
                         title="Excluir Usuário"
                       >
                         <span className="material-symbols-outlined text-[18px]">delete</span>
@@ -633,7 +627,7 @@ export const UsuariosViewTab: React.FC = () => {
               {/* Role Selection */}
               <div>
                 <label className="block font-bold text-gray-800 mb-1.5">
-                  Perfil de Segurança & Regra (RBAC) *
+                  Perfil de Segurança & Nível de Acesso *
                 </label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {(Object.keys(ROLE_INFO) as UserRole[]).map((r) => {
@@ -739,6 +733,34 @@ export const UsuariosViewTab: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Confirmation Modal for User Deletion */}
+      <ConfirmModal
+        isOpen={!!userToDelete}
+        onClose={() => setUserToDelete(null)}
+        onConfirm={() => {
+          if (userToDelete) {
+            deleteSystemUser(userToDelete.id);
+            setUserToDelete(null);
+          }
+        }}
+        title="Excluir Usuário do Sistema"
+        message={`Deseja realmente remover o acesso de "${userToDelete?.name}"? Esta ação revogará imediatamente as permissões vinculadas a esta conta.`}
+        confirmText="Sim, Excluir Usuário"
+        cancelText="Cancelar"
+        variant="danger"
+        icon="person_remove"
+        itemDetails={
+          userToDelete
+            ? [
+                { label: 'Nome', value: userToDelete.name },
+                { label: 'E-mail', value: userToDelete.email },
+                { label: 'Perfil / Cargo', value: `${userToDelete.roleTitle} (${ROLE_INFO[userToDelete.role]?.label || userToDelete.role})` },
+                { label: 'Departamento', value: userToDelete.department },
+              ]
+            : []
+        }
+      />
     </div>
   );
 };

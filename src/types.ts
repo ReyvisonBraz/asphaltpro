@@ -1,5 +1,7 @@
 export type ViewMode = 'dashboard' | 'lancamentos' | 'contas' | 'orcamentos' | 'cadastros' | 'relatorios' | 'configuracoes';
 
+export type ToastPosition = 'top-right' | 'top-center' | 'top-left' | 'bottom-right' | 'bottom-center' | 'bottom-left';
+
 export type TransactionType = 'entrada' | 'saida';
 
 export type PaymentMethod = 
@@ -120,8 +122,16 @@ export interface QuoteConversionOptions {
   observacaoConversao?: string;
 }
 
+export interface TextoRapidoPreset {
+  id: string;
+  label: string;
+  categoria?: 'item_tecnico' | 'pagamento' | 'condicoes_gerais';
+  text: string;
+}
+
 export interface LetterheadSettings {
   backgroundImageUrl: string; // Custom uploaded A4 letterhead image (dataUrl or url)
+  logoUrl?: string; // Custom uploaded company/plant logo (dataUrl or url)
   usarTimbradoPersonalizado: boolean;
   nomeEmpresa: string;
   cnpj: string;
@@ -141,6 +151,7 @@ export interface LetterheadSettings {
   margemTopoMm: number;
   margemBaseMm: number;
   margemLateralMm: number;
+  textosRapidos?: TextoRapidoPreset[];
 }
 
 export interface Transaction {
@@ -156,6 +167,8 @@ export interface Transaction {
   contaFinanceira?: string;
   observacao?: string;
   comprovanteNome?: string;
+  origemContaId?: string; // ID da conta vinculada (evita duplicação ao liquidar/reabrir)
+  origemOrcamentoId?: string; // ID do orçamento vinculado
   createdAt: string;
 }
 
@@ -170,6 +183,7 @@ export interface AccountItem {
   tipo: AccountType; // pagar ou receber
   categoria?: string;
   dataPagamento?: string;
+  transacaoId?: string; // ID da transação gerada na liquidação
 }
 
 export interface Employee {
@@ -252,6 +266,25 @@ export interface SystemNotification {
 
 // Sync & Offline Types
 export type NetworkState = 'online' | 'offline' | 'syncing' | 'error';
+
+export interface FirebaseProjectConfig {
+  apiKey: string;
+  authDomain: string;
+  projectId: string;
+  storageBucket?: string;
+  messagingSenderId?: string;
+  appId?: string;
+  isActive: boolean;
+}
+
+export interface SyncOptimizationStats {
+  cachedReadsSaved: number;
+  batchedWritesSaved: number;
+  lastPingMs: number | null;
+  lastIntegrityCheck: string | null;
+  quotaStatus: 'seguro' | 'moderado' | 'alerta';
+  mode: 'cache_first_anti_abuse' | 'online_synced';
+}
 
 export interface SyncQueueItem {
   id: string; // unique operation id

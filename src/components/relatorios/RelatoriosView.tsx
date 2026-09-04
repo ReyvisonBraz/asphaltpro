@@ -12,6 +12,7 @@ export const RelatoriosView: React.FC = () => {
     saldoAtual,
     showToast,
     setCurrentView,
+    letterheadSettings,
   } = useApp();
 
   const [periodo, setPeriodo] = useState<'diario' | 'semanal' | 'mensal'>('mensal');
@@ -102,8 +103,42 @@ export const RelatoriosView: React.FC = () => {
 
   return (
     <div className="flex-1 p-4 sm:p-6 lg:p-8 max-w-[1440px] mx-auto w-full flex flex-col gap-6 sm:gap-8 animate-in fade-in duration-200">
+      {/* Official Print Header (Visible ONLY during print/PDF generation) */}
+      <div className="print-only mb-6 border-b-2 border-black pb-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            {letterheadSettings?.logoUrl ? (
+              <img src={letterheadSettings.logoUrl} alt="Logo" className="h-12 max-w-[140px] object-contain" />
+            ) : (
+              <div className="w-10 h-10 bg-black text-[#F2A93B] rounded flex items-center justify-center font-black text-sm">
+                AP
+              </div>
+            )}
+            <div>
+              <h1 className="text-base font-bold uppercase tracking-wider text-black">
+                {letterheadSettings?.nomeEmpresa || 'AsphaltPro Pavimentação & Usina'}
+              </h1>
+              <p className="text-[11px] text-gray-700">
+                CNPJ: {letterheadSettings?.cnpj || '12.345.678/0001-90'} • {letterheadSettings?.enderecoUsina || 'Distrito Industrial'}
+              </p>
+            </div>
+          </div>
+          <div className="text-right">
+            <h2 className="text-sm font-bold uppercase tracking-wide text-black">
+              Relatório Financeiro & DRE
+            </h2>
+            <p className="text-xs text-gray-700">
+              Período: <strong className="font-semibold">{selectedMonth}</strong> ({periodo})
+            </p>
+            <p className="text-[10px] text-gray-500">
+              Gerado em: {new Date().toLocaleDateString('pt-BR')} às {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+            </p>
+          </div>
+        </div>
+      </div>
+
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 print:hidden">
         <div>
           <h2 className="text-xl sm:text-2xl lg:text-3xl font-bold text-[#010102] tracking-tight">
             Relatórios Financeiros & DRE
@@ -146,13 +181,24 @@ export const RelatoriosView: React.FC = () => {
           </div>
 
           <Button
+            variant="outline"
+            icon="print"
+            size="sm"
+            onClick={() => window.print()}
+            title="Imprimir Relatório ou Salvar em PDF"
+            className="w-full sm:w-auto"
+          >
+            Imprimir Relatório (PDF)
+          </Button>
+
+          <Button
             variant="primary"
             icon="download"
             size="sm"
             onClick={exportToCSV}
             className="w-full sm:w-auto"
           >
-            Exportar Relatório CSV
+            Exportar CSV
           </Button>
         </div>
       </div>

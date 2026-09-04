@@ -3,6 +3,7 @@ import { useApp } from '../../context/AppContext';
 import { Quote, QuoteItem, QuoteStatus, QuoteCatalogItem, BusinessPartner } from '../../types';
 import { CatalogoItensDrawer } from './CatalogoItensDrawer';
 import { PartnerAutocomplete } from '../common';
+import { quoteFormSchema, validateForm } from '../../schemas/validationSchemas';
 
 const TECH_PRESETS = [
   { label: 'CBUQ Faixa C (5cm)', text: 'Concreto Betuminoso Usinado a Quente (CBUQ) Faixa C, espessura compactada e=5,0 cm, fornecido e aplicado com rolo liso e de pneus.' },
@@ -37,57 +38,40 @@ export const NovoOrcamentoModal: React.FC<NovoOrcamentoModalProps> = ({
     showToast
   } = useApp();
 
+  // Quick Text Presets customizable from letterheadSettings (Configurações)
+  const allQuickTexts = (letterheadSettings.textosRapidos && letterheadSettings.textosRapidos.length > 0)
+    ? letterheadSettings.textosRapidos
+    : TECH_PRESETS.map((p, idx) => ({ id: `tech-${idx}`, label: p.label, text: p.text, categoria: 'item_tecnico' as const }));
+
+  const techPresets = allQuickTexts.filter(p => !p.categoria || p.categoria === 'item_tecnico');
+  const paymentPresets = allQuickTexts.filter(p => p.categoria === 'pagamento');
+  const generalPresets = allQuickTexts.filter(p => p.categoria === 'condicoes_gerais');
+
   const [isCatalogDrawerOpen, setIsCatalogDrawerOpen] = useState(false);
 
-  const modalIdRef = useRef(`orc-modal-${Math.random().toString(36).slice(2, 9)}`);
-  const pushedHistoryRef = useRef(false);
+  const onCloseRef = useRef(onClose);
 
   useEffect(() => {
-    if (!isOpen) {
-      if (pushedHistoryRef.current) {
-        pushedHistoryRef.current = false;
-        if (window.history.state?.modalId === modalIdRef.current) {
-          window.history.back();
-        }
-      }
-      return;
-    }
+    onCloseRef.current = onClose;
+  });
 
-    pushedHistoryRef.current = true;
-    window.history.pushState(
-      { isModal: true, modalId: modalIdRef.current },
-      ''
-    );
-
-    const handlePopState = () => {
-      if (pushedHistoryRef.current) {
-        pushedHistoryRef.current = false;
-        onClose();
-      }
-    };
+  useEffect(() => {
+    if (!isOpen) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        onClose();
+        onCloseRef.current();
       }
     };
 
     document.body.style.overflow = 'hidden';
-    window.addEventListener('popstate', handlePopState);
     window.addEventListener('keydown', handleKeyDown);
 
     return () => {
       document.body.style.overflow = 'unset';
-      window.removeEventListener('popstate', handlePopState);
       window.removeEventListener('keydown', handleKeyDown);
-      if (pushedHistoryRef.current) {
-        pushedHistoryRef.current = false;
-        if (window.history.state?.modalId === modalIdRef.current) {
-          window.history.back();
-        }
-      }
     };
-  }, [isOpen, onClose]);
+  }, [isOpen]);
 
   // Modal sizing, wizard & layout state
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
@@ -191,7 +175,7 @@ export const NovoOrcamentoModal: React.FC<NovoOrcamentoModalProps> = ({
           const first = quoteCatalog[0];
           setItens([
             {
-              id: `item-${Date.now()}`,
+              id: `item-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
               nome: first.nome,
               descricao: first.descricao || '',
               modalidade: first.modalidade,
@@ -204,7 +188,7 @@ export const NovoOrcamentoModal: React.FC<NovoOrcamentoModalProps> = ({
         } else {
           setItens([
             {
-              id: `item-${Date.now()}`,
+              id: `item-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
               nome: 'CBUQ Faixa C (CAP 50/70)',
               descricao: 'Com fornecimento e aplicação com vibroacabadora mecânica',
               modalidade: 'com_aplicacao',
@@ -254,7 +238,7 @@ export const NovoOrcamentoModal: React.FC<NovoOrcamentoModalProps> = ({
 
   const handleAddBlankItem = () => {
     const newItem: QuoteItem = {
-      id: `item-${Date.now()}`,
+      id: `item-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       nome: '',
       descricao: '',
       modalidade: 'com_aplicacao',
@@ -297,12 +281,25 @@ export const NovoOrcamentoModal: React.FC<NovoOrcamentoModalProps> = ({
   const handleUpdateItem = (index: number, field: keyof QuoteItem, val: any) => {
     setItens((prev) => {
       const updated = [...prev];
-      const target = { ...updated[index], [field]: val };
+      const target = { ...updated[index] };
 
       if (field === 'quantidade' || field === 'valorUnitario') {
-        const q = field === 'quantidade' ? Number(val) || 0 : target.quantidade;
-        const p = field === 'valorUnitario' ? Number(val) || 0 : target.valorUnitario;
+        let cleanVal = val;
+        if (typeof val === 'string') {
+          // Remove zero à esquerda caso o usuário digite ex: "05" -> "5"
+          if (/^0[0-9]/.test(val)) {
+            cleanVal = val.replace(/^0+/, '');
+          }
+        }
+        const numVal = cleanVal === '' ? 0 : Number(cleanVal);
+        const finalNum = isNaN(numVal) ? 0 : numVal;
+        target[field] = finalNum;
+
+        const q = field === 'quantidade' ? finalNum : (target.quantidade || 0);
+        const p = field === 'valorUnitario' ? finalNum : (target.valorUnitario || 0);
         target.valorTotal = parseFloat((q * p).toFixed(2));
+      } else {
+        (target as any)[field] = val;
       }
 
       updated[index] = target;
@@ -353,44 +350,71 @@ export const NovoOrcamentoModal: React.FC<NovoOrcamentoModalProps> = ({
   const handleSubmit = (e: React.FormEvent, previewAfter = false) => {
     e.preventDefault();
 
-    if (!clienteNome.trim()) {
-      showToast('Por favor, informe o nome do cliente.', 'error');
-      return;
-    }
-
-    if (itens.length === 0) {
-      showToast('Adicione pelo menos um item à planilha do orçamento.', 'error');
-      return;
-    }
-
-    const valDate = computeValidityDate(dataEmissao, diasValidade);
-
-    const quoteData: Omit<Quote, 'id' | 'createdAt'> = {
+    const validation = validateForm(quoteFormSchema, {
       numero,
       dataEmissao,
-      dataValidade: valDate,
       diasValidade,
       status,
-      cliente: {
-        nome: clienteNome,
-        documento: clienteDocumento,
-        contato: clienteContato,
-        telefone: clienteTelefone,
-        email: clienteEmail,
-        enderecoObra: clienteEnderecoObra,
-        cidadeUf: clienteCidadeUf
-      },
+      clienteNome,
+      clienteDocumento,
+      clienteContato,
+      clienteTelefone,
+      clienteEmail,
+      clienteEnderecoObra,
+      clienteCidadeUf,
       textoIntroducao,
       textoObservacoes,
-      itens,
-      subtotal,
-      desconto: descontoNum,
-      acrescimoFrete: acrescimoNum,
-      valorTotal: valorTotalGeral,
       condicoesPagamento,
       prazoEntrega,
       responsavelNome,
       responsavelCargo,
+      desconto,
+      acrescimoFrete,
+      itens,
+    });
+
+    if (!validation.success) {
+      showToast(validation.firstError, 'error');
+      return;
+    }
+
+    const valDate = computeValidityDate(validation.data.dataEmissao, validation.data.diasValidade);
+
+    const quoteData: Omit<Quote, 'id' | 'createdAt'> = {
+      numero: validation.data.numero,
+      dataEmissao: validation.data.dataEmissao,
+      dataValidade: valDate,
+      diasValidade: validation.data.diasValidade,
+      status: validation.data.status,
+      cliente: {
+        nome: validation.data.clienteNome,
+        documento: validation.data.clienteDocumento,
+        contato: validation.data.clienteContato,
+        telefone: validation.data.clienteTelefone,
+        email: validation.data.clienteEmail,
+        enderecoObra: validation.data.clienteEnderecoObra,
+        cidadeUf: validation.data.clienteCidadeUf
+      },
+      textoIntroducao: validation.data.textoIntroducao || '',
+      textoObservacoes: validation.data.textoObservacoes || '',
+      itens: validation.data.itens.map((it) => ({
+        id: it.id || `item-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        nome: it.nome,
+        descricao: it.descricao,
+        modalidade: it.modalidade,
+        quantidade: it.quantidade,
+        unidade: it.unidade,
+        valorUnitario: it.valorUnitario,
+        valorTotal: it.valorTotal ?? parseFloat((it.quantidade * it.valorUnitario).toFixed(2))
+      })),
+      subtotal,
+      desconto: validation.data.desconto,
+      acrescimoFrete: validation.data.acrescimoFrete,
+      valorTotal: valorTotalGeral,
+      condicoesPagamento: validation.data.condicoesPagamento || '',
+      prazoEntrega: validation.data.prazoEntrega || '',
+      responsavelNome: validation.data.responsavelNome,
+      responsavelCargo: validation.data.responsavelCargo || '',
       convertidoEmReceita: quoteToEdit ? quoteToEdit.convertidoEmReceita : false,
       dataConversao: quoteToEdit?.dataConversao,
       detalhesConversao: quoteToEdit?.detalhesConversao
@@ -418,11 +442,11 @@ export const NovoOrcamentoModal: React.FC<NovoOrcamentoModalProps> = ({
 
   return (
     <>
-      <div className={`fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-xs flex items-center justify-center ${isMaximized ? 'p-0' : 'p-2 sm:p-4 lg:p-6'}`}>
+      <div className={`fixed inset-0 z-50 overflow-y-auto bg-black/60 backdrop-blur-xs flex items-center justify-center ${isMaximized ? 'p-0' : 'p-1.5 sm:p-2.5 md:p-3.5'}`}>
         <div className={`bg-white shadow-2xl overflow-hidden border border-[#DEE2E6] flex flex-col transition-all duration-200 ${
           isMaximized
             ? 'w-full h-full max-h-screen max-w-none rounded-none'
-            : 'max-w-6xl xl:max-w-7xl w-full rounded-2xl max-h-[94vh]'
+            : 'w-[98.5vw] max-w-[1580px] rounded-2xl max-h-[96vh]'
         } animate-in fade-in zoom-in-95 duration-150`}>
           
           {/* Top Modal Header */}
@@ -873,18 +897,18 @@ export const NovoOrcamentoModal: React.FC<NovoOrcamentoModalProps> = ({
                 {viewMode === 'tabela' ? (
                   <>
                     {/* Desktop / Tablet: Fluid Table with Resizable Textareas */}
-                    <div className="hidden md:block w-full">
-                      <table className="w-full text-left text-xs border-collapse table-fixed">
+                    <div className="hidden md:block w-full overflow-x-auto scrollbar-thin">
+                      <table className="w-full text-left text-xs border-collapse min-w-[980px]">
                         <thead>
                           <tr className="bg-[#010102] text-white text-[10px] uppercase font-semibold">
                             <th className="py-2.5 px-2 w-10 text-center">#</th>
-                            <th className="py-2.5 px-3 w-[40%]">Item / Especificação Técnica (Esticável)</th>
-                            <th className="py-2.5 px-2 w-[14%]">Modalidade</th>
-                            <th className="py-2.5 px-2 w-[9%] text-right">Qtd.</th>
-                            <th className="py-2.5 px-2 w-[8%] text-center">Unid.</th>
-                            <th className="py-2.5 px-2 w-[13%] text-right">Preço Unit. (R$)</th>
-                            <th className="py-2.5 px-3 w-[13%] text-right">Total (R$)</th>
-                            <th className="py-2.5 px-2 w-24 text-center">Ações</th>
+                            <th className="py-2.5 px-3 min-w-[300px]">Item / Especificação Técnica (Esticável)</th>
+                            <th className="py-2.5 px-2 w-36">Modalidade</th>
+                            <th className="py-2.5 px-2 w-24 text-right">Qtd.</th>
+                            <th className="py-2.5 px-2 w-20 text-center">Unid.</th>
+                            <th className="py-2.5 px-2 w-28 text-right">Preço Unit. (R$)</th>
+                            <th className="py-2.5 px-3 w-32 text-right">Total (R$)</th>
+                            <th className="py-2.5 px-2 w-36 text-center whitespace-nowrap">Ações</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-200">
@@ -964,8 +988,14 @@ export const NovoOrcamentoModal: React.FC<NovoOrcamentoModalProps> = ({
                                     inputMode="decimal"
                                     step="any"
                                     min="0"
-                                    value={item.quantidade}
-                                    onChange={(e) => handleUpdateItem(index, 'quantidade', e.target.value)}
+                                    placeholder="0"
+                                    value={item.quantidade === 0 ? '' : item.quantidade}
+                                    onFocus={(e) => e.target.select()}
+                                    onChange={(e) => {
+                                      let v = e.target.value;
+                                      if (/^0[0-9]/.test(v)) v = v.replace(/^0+/, '');
+                                      handleUpdateItem(index, 'quantidade', v);
+                                    }}
                                     className="w-full p-2 rounded-lg border border-gray-300 text-xs text-right font-mono font-bold text-[#010102] bg-white outline-none focus:border-[#835400]"
                                   />
                                 </td>
@@ -995,8 +1025,14 @@ export const NovoOrcamentoModal: React.FC<NovoOrcamentoModalProps> = ({
                                     inputMode="decimal"
                                     step="0.01"
                                     min="0"
-                                    value={item.valorUnitario}
-                                    onChange={(e) => handleUpdateItem(index, 'valorUnitario', e.target.value)}
+                                    placeholder="0,00"
+                                    value={item.valorUnitario === 0 ? '' : item.valorUnitario}
+                                    onFocus={(e) => e.target.select()}
+                                    onChange={(e) => {
+                                      let v = e.target.value;
+                                      if (/^0[0-9]/.test(v)) v = v.replace(/^0+/, '');
+                                      handleUpdateItem(index, 'valorUnitario', v);
+                                    }}
                                     className="w-full p-2 rounded-lg border border-gray-300 text-xs text-right font-mono font-bold text-[#835400] bg-white outline-none focus:border-[#835400]"
                                   />
                                 </td>
@@ -1007,8 +1043,8 @@ export const NovoOrcamentoModal: React.FC<NovoOrcamentoModalProps> = ({
                                 </td>
 
                                 {/* Action buttons */}
-                                <td className="py-2.5 px-2 text-center align-top pt-3">
-                                  <div className="flex items-center justify-center gap-0.5">
+                                <td className="py-2.5 px-2 text-center align-top pt-3 whitespace-nowrap">
+                                  <div className="flex items-center justify-center gap-1">
                                     <button
                                       type="button"
                                       onClick={() => handleMoveItem(index, 'up')}
@@ -1046,10 +1082,11 @@ export const NovoOrcamentoModal: React.FC<NovoOrcamentoModalProps> = ({
                                     <button
                                       type="button"
                                       onClick={() => handleRemoveItem(index)}
-                                      title="Excluir item"
-                                      className="p-1 text-gray-400 hover:text-red-600 rounded cursor-pointer"
+                                      title="Excluir este item da planilha"
+                                      className="p-1.5 text-red-600 hover:text-white hover:bg-red-600 bg-red-50 rounded-lg transition-colors cursor-pointer shadow-2xs flex items-center justify-center"
+                                      aria-label="Excluir item"
                                     >
-                                      <span className="material-symbols-outlined text-[15px]">delete</span>
+                                      <span className="material-symbols-outlined text-[16px] font-bold">delete</span>
                                     </button>
                                   </div>
                                 </td>
@@ -1096,9 +1133,9 @@ export const NovoOrcamentoModal: React.FC<NovoOrcamentoModalProps> = ({
                                         Inserir Parâmetros Rápidos de Pavimentação (clique para adicionar ao texto):
                                       </span>
                                       <div className="flex flex-wrap gap-1.5">
-                                        {TECH_PRESETS.map((preset, pIdx) => (
+                                        {techPresets.map((preset) => (
                                           <button
-                                            key={pIdx}
+                                            key={preset.id}
                                             type="button"
                                             onClick={() => {
                                               const current = item.descricao ? item.descricao + '\n' : '';
@@ -1154,10 +1191,11 @@ export const NovoOrcamentoModal: React.FC<NovoOrcamentoModalProps> = ({
                               <button
                                 type="button"
                                 onClick={() => handleRemoveItem(index)}
-                                title="Remover item"
-                                className="p-1 text-gray-400 hover:text-red-600 rounded"
+                                title="Excluir este item"
+                                className="p-1.5 text-red-600 hover:text-white hover:bg-red-600 bg-red-50 rounded-lg transition-colors shadow-2xs"
+                                aria-label="Excluir item"
                               >
-                                <span className="material-symbols-outlined text-[16px]">delete</span>
+                                <span className="material-symbols-outlined text-[16px] font-bold">delete</span>
                               </button>
                             </div>
                           </div>
@@ -1205,8 +1243,14 @@ export const NovoOrcamentoModal: React.FC<NovoOrcamentoModalProps> = ({
                                 inputMode="decimal"
                                 step="0.01"
                                 min="0"
-                                value={item.valorUnitario}
-                                onChange={(e) => handleUpdateItem(index, 'valorUnitario', e.target.value)}
+                                placeholder="0,00"
+                                value={item.valorUnitario === 0 ? '' : item.valorUnitario}
+                                onFocus={(e) => e.target.select()}
+                                onChange={(e) => {
+                                  let v = e.target.value;
+                                  if (/^0[0-9]/.test(v)) v = v.replace(/^0+/, '');
+                                  handleUpdateItem(index, 'valorUnitario', v);
+                                }}
                                 className="w-full p-2 rounded-lg border border-gray-300 text-xs font-mono font-bold text-[#835400] text-right bg-white outline-none focus:border-[#835400]"
                               />
                             </div>
@@ -1218,8 +1262,14 @@ export const NovoOrcamentoModal: React.FC<NovoOrcamentoModalProps> = ({
                                 inputMode="decimal"
                                 step="any"
                                 min="0"
-                                value={item.quantidade}
-                                onChange={(e) => handleUpdateItem(index, 'quantidade', e.target.value)}
+                                placeholder="0"
+                                value={item.quantidade === 0 ? '' : item.quantidade}
+                                onFocus={(e) => e.target.select()}
+                                onChange={(e) => {
+                                  let v = e.target.value;
+                                  if (/^0[0-9]/.test(v)) v = v.replace(/^0+/, '');
+                                  handleUpdateItem(index, 'quantidade', v);
+                                }}
                                 className="w-full p-2 rounded-lg border border-gray-300 text-xs font-mono font-bold text-[#010102] text-right bg-white outline-none focus:border-[#835400]"
                               />
                             </div>
@@ -1307,10 +1357,11 @@ export const NovoOrcamentoModal: React.FC<NovoOrcamentoModalProps> = ({
                               <button
                                 type="button"
                                 onClick={() => handleRemoveItem(index)}
-                                title="Remover item"
-                                className="p-1 text-gray-400 hover:text-red-600 rounded"
+                                title="Excluir este item"
+                                className="p-1.5 text-red-600 hover:text-white hover:bg-red-600 bg-red-50 rounded-lg transition-colors shadow-2xs"
+                                aria-label="Excluir item"
                               >
-                                <span className="material-symbols-outlined text-[18px]">delete</span>
+                                <span className="material-symbols-outlined text-[18px] font-bold">delete</span>
                               </button>
                             </div>
                           </div>
@@ -1353,16 +1404,16 @@ export const NovoOrcamentoModal: React.FC<NovoOrcamentoModalProps> = ({
                           {/* Quick Chips */}
                           <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
                             <span className="text-[10px] font-bold text-gray-500 uppercase mr-1">Inserir:</span>
-                            {TECH_PRESETS.map((preset, pIdx) => (
+                            {techPresets.map((preset) => (
                               <button
-                                key={pIdx}
+                                key={preset.id}
                                 type="button"
                                 onClick={() => {
                                   const current = item.descricao ? item.descricao + '\n' : '';
                                   handleUpdateItem(index, 'descricao', current + preset.text);
                                   showToast(`Parâmetro "${preset.label}" inserido.`, 'info');
                                 }}
-                                className="px-2 py-0.5 bg-white hover:bg-amber-50 text-gray-700 hover:text-[#835400] border border-gray-200 rounded text-[10px] font-semibold transition-colors"
+                                className="px-2 py-0.5 bg-white hover:bg-amber-50 text-gray-700 hover:text-[#835400] border border-gray-200 rounded text-[10px] font-semibold transition-colors cursor-pointer"
                               >
                                 + {preset.label}
                               </button>
@@ -1395,11 +1446,18 @@ export const NovoOrcamentoModal: React.FC<NovoOrcamentoModalProps> = ({
                             </label>
                             <input
                               type="number"
+                              inputMode="decimal"
                               step="any"
                               min="0"
-                              value={item.quantidade}
-                              onChange={(e) => handleUpdateItem(index, 'quantidade', e.target.value)}
-                              className="w-full p-2 rounded-lg border border-gray-300 text-xs font-mono font-bold text-right bg-white outline-none"
+                              placeholder="0"
+                              value={item.quantidade === 0 ? '' : item.quantidade}
+                              onFocus={(e) => e.target.select()}
+                              onChange={(e) => {
+                                let v = e.target.value;
+                                if (/^0[0-9]/.test(v)) v = v.replace(/^0+/, '');
+                                handleUpdateItem(index, 'quantidade', v);
+                              }}
+                              className="w-full p-2 rounded-lg border border-gray-300 text-xs font-mono font-bold text-right bg-white outline-none focus:border-[#835400]"
                             />
                           </div>
 
@@ -1429,11 +1487,18 @@ export const NovoOrcamentoModal: React.FC<NovoOrcamentoModalProps> = ({
                             </label>
                             <input
                               type="number"
+                              inputMode="decimal"
                               step="0.01"
                               min="0"
-                              value={item.valorUnitario}
-                              onChange={(e) => handleUpdateItem(index, 'valorUnitario', e.target.value)}
-                              className="w-full p-2 rounded-lg border border-gray-300 text-xs font-mono font-bold text-[#835400] text-right bg-white outline-none"
+                              placeholder="0,00"
+                              value={item.valorUnitario === 0 ? '' : item.valorUnitario}
+                              onFocus={(e) => e.target.select()}
+                              onChange={(e) => {
+                                let v = e.target.value;
+                                if (/^0[0-9]/.test(v)) v = v.replace(/^0+/, '');
+                                handleUpdateItem(index, 'valorUnitario', v);
+                              }}
+                              className="w-full p-2 rounded-lg border border-gray-300 text-xs font-mono font-bold text-[#835400] text-right bg-white outline-none focus:border-[#835400]"
                             />
                           </div>
                         </div>
@@ -1502,8 +1567,13 @@ export const NovoOrcamentoModal: React.FC<NovoOrcamentoModalProps> = ({
                       inputMode="decimal"
                       step="0.01"
                       min="0"
-                      value={desconto}
-                      onChange={(e) => setDesconto(e.target.value)}
+                      value={desconto === '0' || Number(desconto) === 0 ? '' : desconto}
+                      onFocus={(e) => e.target.select()}
+                      onChange={(e) => {
+                        let val = e.target.value;
+                        if (/^0[0-9]/.test(val)) val = val.replace(/^0+/, '');
+                        setDesconto(val);
+                      }}
                       placeholder="0,00"
                       className="w-full p-1.5 text-right text-sm rounded-lg border border-green-300 font-mono font-bold text-green-700 bg-white outline-none focus:ring-1 focus:ring-green-500"
                     />
@@ -1516,8 +1586,13 @@ export const NovoOrcamentoModal: React.FC<NovoOrcamentoModalProps> = ({
                       inputMode="decimal"
                       step="0.01"
                       min="0"
-                      value={acrescimoFrete}
-                      onChange={(e) => setAcrescimoFrete(e.target.value)}
+                      value={acrescimoFrete === '0' || Number(acrescimoFrete) === 0 ? '' : acrescimoFrete}
+                      onFocus={(e) => e.target.select()}
+                      onChange={(e) => {
+                        let val = e.target.value;
+                        if (/^0[0-9]/.test(val)) val = val.replace(/^0+/, '');
+                        setAcrescimoFrete(val);
+                      }}
                       placeholder="0,00"
                       className="w-full p-1.5 text-right text-sm rounded-lg border border-blue-300 font-mono font-bold text-blue-700 bg-white outline-none focus:ring-1 focus:ring-blue-500"
                     />
@@ -1538,23 +1613,46 @@ export const NovoOrcamentoModal: React.FC<NovoOrcamentoModalProps> = ({
               {/* 5. Conditions & Notes (Texto Depois da Planilha) */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-[#010102] uppercase tracking-wider mb-1">
-                    5. Condições de Pagamento & Prazo de Entrega
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-bold text-[#010102] uppercase tracking-wider">
+                      5. Condições de Pagamento & Prazo de Entrega
+                    </label>
+                  </div>
                   <div className="space-y-2">
                     <input
                       type="text"
                       placeholder="Condição: Ex: 30 DDL / Entrada de 30% + Saldo em 30/60 dias"
                       value={condicoesPagamento}
                       onChange={(e) => setCondicoesPagamento(e.target.value)}
-                      className="w-full p-2.5 rounded-lg border border-gray-300 text-xs bg-white text-[#010102] outline-none"
+                      className="w-full p-2.5 rounded-lg border border-gray-300 text-xs bg-white text-[#010102] outline-none focus:border-[#835400]"
                     />
+                    {paymentPresets.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-1">
+                        <span className="text-[10px] font-bold text-gray-500 uppercase flex items-center gap-0.5 mr-0.5">
+                          <span className="material-symbols-outlined text-[12px] text-[#835400]">bolt</span>
+                          Rápido:
+                        </span>
+                        {paymentPresets.map((preset) => (
+                          <button
+                            key={preset.id}
+                            type="button"
+                            onClick={() => {
+                              setCondicoesPagamento(preset.text);
+                              showToast(`Condição "${preset.label}" aplicada.`, 'info');
+                            }}
+                            className="px-2 py-0.5 rounded bg-gray-100 hover:bg-amber-100 text-[#010102] hover:text-[#835400] border border-gray-200 text-[10px] font-semibold transition-colors cursor-pointer"
+                          >
+                            {preset.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     <input
                       type="text"
                       placeholder="Prazo: Ex: Início imediato após assinatura da proposta"
                       value={prazoEntrega}
                       onChange={(e) => setPrazoEntrega(e.target.value)}
-                      className="w-full p-2.5 rounded-lg border border-gray-300 text-xs bg-white text-[#010102] outline-none"
+                      className="w-full p-2.5 rounded-lg border border-gray-300 text-xs bg-white text-[#010102] outline-none focus:border-[#835400]"
                     />
                   </div>
                 </div>
@@ -1575,6 +1673,28 @@ export const NovoOrcamentoModal: React.FC<NovoOrcamentoModalProps> = ({
                     onChange={(e) => setTextoObservacoes(e.target.value)}
                     className="w-full p-2.5 rounded-lg border border-gray-300 text-xs bg-white text-[#010102] outline-none resize-y min-h-[75px] leading-relaxed focus:border-[#835400] focus:ring-1 focus:ring-[#835400]"
                   />
+                  {generalPresets.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1 mt-1.5">
+                      <span className="text-[10px] font-bold text-gray-500 uppercase flex items-center gap-0.5 mr-0.5">
+                        <span className="material-symbols-outlined text-[12px] text-[#835400]">bolt</span>
+                        Inserir:
+                      </span>
+                      {generalPresets.map((preset) => (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          onClick={() => {
+                            const current = textoObservacoes ? textoObservacoes + '\n' : '';
+                            setTextoObservacoes(current + preset.text);
+                            showToast(`Texto "${preset.label}" adicionado.`, 'info');
+                          }}
+                          className="px-2 py-0.5 rounded bg-gray-100 hover:bg-amber-100 text-[#010102] hover:text-[#835400] border border-gray-200 text-[10px] font-semibold transition-colors cursor-pointer"
+                        >
+                          + {preset.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 <div>

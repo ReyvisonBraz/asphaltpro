@@ -118,7 +118,7 @@ export const LoginView: React.FC = () => {
           <div className="pt-4 border-t border-gray-100">
             <div className="flex items-center justify-between mb-2.5">
               <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">
-                Simular Acesso Rápido por Perfil (RBAC)
+                Entrar Rápido por Perfil de Acesso
               </span>
               <span className="text-[10px] text-gray-400">1-clique</span>
             </div>

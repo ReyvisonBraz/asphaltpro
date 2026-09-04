@@ -32,6 +32,7 @@ const MainLayout: React.FC = () => {
     isDiagnosticsOpen,
     setIsDiagnosticsOpen,
     setIsMobileSidebarOpen,
+    isSidebarCollapsed,
   } = useApp();
   useKeyboardShortcuts();
 
@@ -62,11 +63,11 @@ const MainLayout: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-[#F8F9FA] flex">
-      {/* Fixed Left Sidebar */}
+      {/* Retractable Left Sidebar */}
       <Sidebar />
 
-      {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0 pl-0 lg:pl-64 max-w-full overflow-x-hidden transition-all">
+      {/* Main Content Area - Adapts dynamically when sidebar is collapsed/expanded */}
+      <div className={`flex-1 flex flex-col min-w-0 pl-0 ${isSidebarCollapsed ? 'lg:pl-20' : 'lg:pl-64'} max-w-full overflow-x-hidden transition-[padding] duration-300 ease-in-out`}>
         <TopHeader />
         <main className="flex-1 flex flex-col w-full min-w-0 pb-24 lg:pb-8">
           {renderCurrentView()}

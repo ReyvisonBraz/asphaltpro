@@ -3,9 +3,10 @@ import { useApp } from '../../context/AppContext';
 import { AccountType, AccountStatus } from '../../types';
 import { formatDateToBR, getTodayDateInputValue } from '../../utils/formatters';
 import { Modal, Button, Input, Select, PartnerAutocomplete } from '../common';
+import { accountFormSchema, validateForm } from '../../schemas/validationSchemas';
 
 export const NovaContaModal: React.FC = () => {
-  const { isNovaContaOpen, setIsNovaContaOpen, addAccount, categories } = useApp();
+  const { isNovaContaOpen, setIsNovaContaOpen, addAccount, categories, showToast } = useApp();
 
   const [tipo, setTipo] = useState<AccountType>('pagar');
   const [descricao, setDescricao] = useState('');
@@ -14,52 +15,63 @@ export const NovaContaModal: React.FC = () => {
   const [vencimento, setVencimento] = useState(getTodayDateInputValue());
   const [valor, setValor] = useState('');
   const [categoria, setCategoria] = useState('Matéria Prima (CAP / Brita)');
-  const [errorDesc, setErrorDesc] = useState('');
-  const [errorValor, setErrorValor] = useState('');
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!descricao.trim()) {
-      setErrorDesc('Informe a descrição do compromisso');
+
+    const formattedVencimento = vencimento.includes('/') ? vencimento : formatDateToBR(vencimento);
+
+    const validation = validateForm(accountFormSchema, {
+      tipo,
+      descricao,
+      fornecedorCliente: fornecedorCliente.trim() || (tipo === 'pagar' ? 'Fornecedor Diversos' : 'Cliente Diversos'),
+      vencimento: formattedVencimento,
+      valor,
+      totalParcelas,
+      categoria,
+      status: 'pendente',
+    });
+
+    if (!validation.success) {
+      setFormErrors(validation.errors);
+      showToast(validation.firstError, 'error');
       return;
     }
 
-    const cleanNum = parseFloat(valor.replace('.', '').replace(',', '.'));
-    if (isNaN(cleanNum) || cleanNum <= 0) {
-      setErrorValor('Informe um valor válido maior que zero');
-      return;
-    }
+    setFormErrors({});
 
-    const finalVal = cleanNum;
-    const numParcelas = parseInt(totalParcelas, 10) || 1;
+    const finalVal = validation.data.valor;
+    const numParcelas = validation.data.totalParcelas;
 
     if (numParcelas === 1) {
       addAccount({
-        descricao: descricao.trim(),
-        fornecedorCliente: fornecedorCliente.trim() || 'Não especificado',
+        descricao: validation.data.descricao,
+        fornecedorCliente: validation.data.fornecedorCliente,
         parcela: 'Única',
-        vencimento: formatDateToBR(vencimento),
+        vencimento: validation.data.vencimento,
         valor: finalVal,
         status: 'pendente' as AccountStatus,
         tipo,
-        categoria,
+        categoria: validation.data.categoria,
       });
     } else {
       const installmentVal = Number((finalVal / numParcelas).toFixed(2));
       for (let i = 1; i <= numParcelas; i++) {
         addAccount({
-          descricao: `${descricao.trim()}`,
-          fornecedorCliente: fornecedorCliente.trim() || 'Não especificado',
+          descricao: validation.data.descricao,
+          fornecedorCliente: validation.data.fornecedorCliente,
           parcela: `${i}/${numParcelas}`,
-          vencimento: formatDateToBR(vencimento),
+          vencimento: validation.data.vencimento,
           valor: installmentVal,
           status: 'pendente' as AccountStatus,
           tipo,
-          categoria,
+          categoria: validation.data.categoria,
         });
       }
     }
 
+    showToast('Título financeiro cadastrado com sucesso!', 'success');
     setIsNovaContaOpen(false);
   };
 
@@ -67,6 +79,7 @@ export const NovaContaModal: React.FC = () => {
     <Modal
       isOpen={isNovaContaOpen}
       onClose={() => setIsNovaContaOpen(false)}
+      size="lg"
       title={
         <div className="flex items-center gap-3">
           <div
@@ -90,7 +103,6 @@ export const NovaContaModal: React.FC = () => {
           </div>
         </div>
       }
-      size="md"
       footer={
         <>
           <Button
@@ -151,9 +163,15 @@ export const NovaContaModal: React.FC = () => {
           value={descricao}
           onChange={(e) => {
             setDescricao(e.target.value);
-            if (errorDesc) setErrorDesc('');
+            if (formErrors.descricao) {
+              setFormErrors((prev) => {
+                const n = { ...prev };
+                delete n.descricao;
+                return n;
+              });
+            }
           }}
-          error={errorDesc}
+          error={formErrors.descricao}
           required
           autoFocus
         />
@@ -167,7 +185,16 @@ export const NovaContaModal: React.FC = () => {
               : 'Pesquise cliente por nome, CNPJ, obra...'
           }
           value={fornecedorCliente}
-          onChange={setFornecedorCliente}
+          onChange={(val) => {
+            setFornecedorCliente(val);
+            if (formErrors.fornecedorCliente) {
+              setFormErrors((prev) => {
+                const n = { ...prev };
+                delete n.fornecedorCliente;
+                return n;
+              });
+            }
+          }}
           onSelectPartner={(partner) => {
             setFornecedorCliente(partner.nome);
             if (partner.categoriaPadrao) {
@@ -176,6 +203,7 @@ export const NovaContaModal: React.FC = () => {
           }}
           partnerType={tipo === 'pagar' ? 'fornecedor' : 'cliente'}
           leftIcon="business"
+          error={formErrors.fornecedorCliente}
           helperText="Pesquise no cadastro da usina ou digite um novo nome"
         />
 
@@ -189,9 +217,15 @@ export const NovaContaModal: React.FC = () => {
             onChange={(e) => {
               const val = e.target.value.replace(/[^\d,]/g, '');
               setValor(val);
-              if (errorValor) setErrorValor('');
+              if (formErrors.valor) {
+                setFormErrors((prev) => {
+                  const n = { ...prev };
+                  delete n.valor;
+                  return n;
+                });
+              }
             }}
-            error={errorValor}
+            error={formErrors.valor}
             leftIcon="payments"
             required
           />
@@ -218,7 +252,17 @@ export const NovaContaModal: React.FC = () => {
             label="Data de Vencimento *"
             type="date"
             value={vencimento}
-            onChange={(e) => setVencimento(e.target.value)}
+            onChange={(e) => {
+              setVencimento(e.target.value);
+              if (formErrors.vencimento) {
+                setFormErrors((prev) => {
+                  const n = { ...prev };
+                  delete n.vencimento;
+                  return n;
+                });
+              }
+            }}
+            error={formErrors.vencimento}
             required
             leftIcon="event"
           />
