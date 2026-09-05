@@ -1,5 +1,5 @@
 import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
-import { getFirestore, doc, setDoc, deleteDoc, collection, getDocs, Firestore, serverTimestamp } from 'firebase/firestore';
+import { getFirestore, doc, setDoc, deleteDoc, collection, getDocs, onSnapshot, Firestore, serverTimestamp } from 'firebase/firestore';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut as firebaseSignOut, Auth, User as FirebaseUser } from 'firebase/auth';
 import { FirebaseProjectConfig } from '../types';
 
@@ -310,3 +310,42 @@ export const fetchCollectionFromFirestore = async (collectionName: string): Prom
     return [];
   }
 };
+
+/**
+ * Subscribes to real-time updates for a given Firestore collection.
+ * Any creates, updates or DELETES from any device trigger this callback immediately.
+ */
+export const subscribeToFirestoreCollection = (
+  collectionName: string,
+  onData: (items: any[]) => void,
+  onError?: (err: any) => void
+): (() => void) | null => {
+  const db = getFirestoreDb();
+  if (!db) return null;
+
+  try {
+    const colRef = collection(db, collectionName);
+    const unsubscribe = onSnapshot(
+      colRef,
+      (snap) => {
+        const items = snap.docs.map((d) => {
+          const data = d.data();
+          return {
+            id: d.id,
+            ...data
+          };
+        });
+        onData(items);
+      },
+      (err) => {
+        console.warn(`Aviso na escuta em tempo real da coleção "${collectionName}":`, err);
+        if (onError) onError(err);
+      }
+    );
+    return unsubscribe;
+  } catch (err) {
+    console.error(`Erro ao assinar coleção em tempo real "${collectionName}":`, err);
+    return null;
+  }
+};
+

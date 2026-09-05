@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { syncManager } from '../services/syncManager';
 import { errorDiagnosticsService } from '../services/errorDiagnosticsService';
-import { logoutFirebaseAuth, getSavedFirebaseConfig, fetchCollectionFromFirestore } from '../services/firebaseConfig';
+import { logoutFirebaseAuth, getSavedFirebaseConfig, fetchCollectionFromFirestore, subscribeToFirestoreCollection } from '../services/firebaseConfig';
 import {
   exportSystemJsonBackup,
   exportTransactionsCsv,
@@ -33,6 +33,7 @@ import {
   ErrorSeverity,
   BusinessPartner,
   PartnerType,
+  SyncQueueItem,
 } from '../types';
 import {
   INITIAL_USER,
@@ -982,6 +983,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     if (matchedUser) {
       if (matchedUser.status === 'inativo') {
+        logoutFirebaseAuth().catch(() => {});
         showToast('Esta conta de usuário foi inativada. Contate o Administrador.', 'error');
         return false;
       }
@@ -995,10 +997,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         status: 'Active'
       };
       setUser(updatedProfile);
-    } else {
-      // First time logging in with this Google account: register as system user (Admin by default)
+      setIsAuthenticated(true);
+      showToast(`Bem-vindo(a), ${matchedUser.name}! [Perfil: ${matchedUser.roleTitle}]`, 'success');
+      syncManager.addLog(`Login via Google Auth efetuado por ${matchedUser.name} (${matchedUser.email}) [${matchedUser.roleTitle}]`, 'info');
+      return true;
+    }
+
+    // Check if this is the Master Owner account bootstrapping the company
+    const isMasterEmail = userEmail.toLowerCase() === 'littlefigther50@gmail.com' || systemUsers.length === 0;
+
+    if (isMasterEmail) {
       const role: UserRole = 'admin';
-      const roleTitle = 'Diretor de Operações (Google)';
+      const roleTitle = 'Diretor de Operações (Admin Geral)';
 
       const newSystemUser: SystemUser = {
         id: `user-google-${googleUser.uid || Date.now()}`,
@@ -1026,12 +1036,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         status: 'Active'
       };
       setUser(profile);
+      setIsAuthenticated(true);
+      showToast(`Bem-vindo(a), Administrador(a) ${userName}! Conta Master autorizada.`, 'success');
+      syncManager.addLog(`Login Master via Google Auth efetuado por ${userName} (${userEmail})`, 'info');
+      return true;
     }
 
-    setIsAuthenticated(true);
-    showToast(`Bem-vindo(a), ${userName}! (Conectado via Google)`, 'success');
-    syncManager.addLog(`Login via Google Auth efetuado por ${userName} (${userEmail})`, 'info');
-    return true;
+    // ANY UNREGISTERED EMAIL: Access Blocked!
+    logoutFirebaseAuth().catch(() => {});
+    showToast(`Acesso não autorizado: O e-mail "${userEmail}" não está cadastrado na equipe. Solicite ao Administrador para cadastrar seu e-mail e perfil em Configurações > Usuários.`, 'error');
+    syncManager.addLog(`Tentativa de acesso via Google não autorizada: ${userEmail}`, 'warning');
+    return false;
   };
 
   const logout = () => {
@@ -2013,6 +2028,51 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     showToast('Dados do sistema restaurados para o padrão de fábrica.', 'info');
   };
 
+  /**
+   * RECONCILIATION ENGINE:
+   * Merges authoritative cloud documents with local state while properly
+   * honoring deletions across devices and preserving pending offline creations.
+   */
+  const reconcileWithCloud = <T extends { id: string }>(
+    cloudItems: T[],
+    prevItems: T[],
+    entityType: SyncQueueItem['entityType']
+  ): T[] => {
+    const queue = syncManager.getQueue();
+    // Items created locally on this device while offline
+    const pendingCreates = queue.filter(
+      (q) => q.entityType === entityType && q.action === 'create' && q.status === 'pending'
+    );
+    // Items deleted locally on this device while offline
+    const pendingDeletes = new Set(
+      queue.filter((q) => q.entityType === entityType && q.action === 'delete').map((q) => q.entityId)
+    );
+
+    const map = new Map<string, T>();
+
+    // 1. Authoritative Cloud state: all items currently existing in Firestore
+    cloudItems.forEach((item) => {
+      // If local device deleted it offline, honor local delete
+      if (!pendingDeletes.has(item.id)) {
+        map.set(item.id, item);
+      }
+    });
+
+    // 2. Preserve any local documents that were created while offline and haven't synced yet
+    pendingCreates.forEach((q) => {
+      if (q.payload && q.payload.id) {
+        map.set(q.payload.id, q.payload as T);
+      } else {
+        const localItem = prevItems.find((p) => p.id === q.entityId);
+        if (localItem) {
+          map.set(localItem.id, localItem);
+        }
+      }
+    });
+
+    return Array.from(map.values());
+  };
+
   const [isPullingFromCloud, setIsPullingFromCloud] = useState(false);
 
   const pullFromCloud = async (silent: boolean = false): Promise<{ success: boolean; count: number }> => {
@@ -2044,72 +2104,56 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       let totalPulled = 0;
 
-      if (cloudTx.length > 0) {
-        setTransactions((prev) => {
-          const mergedMap = new Map<string, Transaction>();
-          prev.forEach((t) => mergedMap.set(t.id, t));
-          cloudTx.forEach((t: any) => mergedMap.set(t.id, t as Transaction));
-          const result = deduplicateTransactionsList(Array.from(mergedMap.values()));
-          localStorage.setItem('asphalt_transactions', JSON.stringify(result));
-          return result;
-        });
-        totalPulled += cloudTx.length;
-      }
+      // 1. Reconcile transactions:
+      setTransactions((prev) => {
+        const reconciled = reconcileWithCloud<Transaction>(cloudTx, prev, 'transaction');
+        const result = deduplicateTransactionsList(reconciled);
+        localStorage.setItem('asphalt_transactions', JSON.stringify(result));
+        return result;
+      });
+      totalPulled += cloudTx.length;
 
-      if (cloudQuotes.length > 0) {
-        setQuotes((prev) => {
-          const mergedMap = new Map<string, Quote>();
-          prev.forEach((q) => mergedMap.set(q.id, q));
-          cloudQuotes.forEach((q: any) => mergedMap.set(q.id, q as Quote));
-          const result = deduplicateItems(Array.from(mergedMap.values()), 'quote');
-          localStorage.setItem('asphalt_quotes', JSON.stringify(result));
-          return result;
-        });
-        totalPulled += cloudQuotes.length;
-      }
+      // 2. Reconcile quotes:
+      setQuotes((prev) => {
+        const reconciled = reconcileWithCloud<Quote>(cloudQuotes, prev, 'quote');
+        const result = deduplicateItems(reconciled, 'quote');
+        localStorage.setItem('asphalt_quotes', JSON.stringify(result));
+        return result;
+      });
+      totalPulled += cloudQuotes.length;
 
-      if (cloudAccounts.length > 0) {
-        setAccounts((prev) => {
-          const mergedMap = new Map<string, AccountItem>();
-          prev.forEach((a) => mergedMap.set(a.id, a));
-          cloudAccounts.forEach((a: any) => mergedMap.set(a.id, a as AccountItem));
-          const result = deduplicateItems(Array.from(mergedMap.values()), 'acc');
-          localStorage.setItem('asphalt_accounts', JSON.stringify(result));
-          return result;
-        });
-        totalPulled += cloudAccounts.length;
-      }
+      // 3. Reconcile accounts:
+      setAccounts((prev) => {
+        const reconciled = reconcileWithCloud<AccountItem>(cloudAccounts, prev, 'account');
+        const result = deduplicateItems(reconciled, 'acc');
+        localStorage.setItem('asphalt_accounts', JSON.stringify(result));
+        return result;
+      });
+      totalPulled += cloudAccounts.length;
 
-      if (cloudEmployees.length > 0) {
-        setEmployees((prev) => {
-          const mergedMap = new Map<string, Employee>();
-          prev.forEach((e) => mergedMap.set(e.id, e));
-          cloudEmployees.forEach((e: any) => mergedMap.set(e.id, e as Employee));
-          const result = deduplicateItems(Array.from(mergedMap.values()), 'emp');
-          localStorage.setItem('asphalt_employees', JSON.stringify(result));
-          return result;
-        });
-        totalPulled += cloudEmployees.length;
-      }
+      // 4. Reconcile employees:
+      setEmployees((prev) => {
+        const reconciled = reconcileWithCloud<Employee>(cloudEmployees, prev, 'employee');
+        const result = deduplicateItems(reconciled, 'emp');
+        localStorage.setItem('asphalt_employees', JSON.stringify(result));
+        return result;
+      });
+      totalPulled += cloudEmployees.length;
 
-      if (cloudPartners.length > 0) {
-        setPartners((prev) => {
-          const mergedMap = new Map<string, BusinessPartner>();
-          prev.forEach((p) => mergedMap.set(p.id, p));
-          cloudPartners.forEach((p: any) => mergedMap.set(p.id, p as BusinessPartner));
-          const result = deduplicateItems(Array.from(mergedMap.values()), 'part');
-          localStorage.setItem('asphalt_partners', JSON.stringify(result));
-          return result;
-        });
-        totalPulled += cloudPartners.length;
-      }
+      // 5. Reconcile partners:
+      setPartners((prev) => {
+        const reconciled = reconcileWithCloud<BusinessPartner>(cloudPartners, prev, 'partner');
+        const result = deduplicateItems(reconciled, 'part');
+        localStorage.setItem('asphalt_partners', JSON.stringify(result));
+        return result;
+      });
+      totalPulled += cloudPartners.length;
 
+      // 6. Reconcile system users:
       if (cloudUsers.length > 0) {
         setSystemUsers((prev) => {
-          const mergedMap = new Map<string, SystemUser>();
-          prev.forEach((u) => mergedMap.set(u.id, u));
-          cloudUsers.forEach((u: any) => mergedMap.set(u.id, u as SystemUser));
-          const result = deduplicateItems(Array.from(mergedMap.values()), 'user');
+          const reconciled = reconcileWithCloud<SystemUser>(cloudUsers, prev, 'user');
+          const result = deduplicateItems(reconciled, 'user');
           localStorage.setItem('asphalt_system_users', JSON.stringify(result));
           return result;
         });
@@ -2132,6 +2176,96 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setIsPullingFromCloud(false);
     }
   };
+
+  // Real-time Firestore Subscriptions:
+  // Instantaneous bidirectional synchronization across all devices (Mobile, PC, Balança)
+  // When an item is added, updated or DELETED on any device, all other devices reflect it in real-time.
+  useEffect(() => {
+    const config = getSavedFirebaseConfig();
+    if (!config || !config.isActive || !config.projectId || !config.apiKey) {
+      return;
+    }
+
+    let isMounted = true;
+
+    // Real-time transactions listener
+    const unsubTx = subscribeToFirestoreCollection('transactions', (cloudTx) => {
+      if (!isMounted) return;
+      setTransactions((prev) => {
+        const reconciled = reconcileWithCloud<Transaction>(cloudTx, prev, 'transaction');
+        const result = deduplicateTransactionsList(reconciled);
+        localStorage.setItem('asphalt_transactions', JSON.stringify(result));
+        return result;
+      });
+    });
+
+    // Real-time quotes listener
+    const unsubQuotes = subscribeToFirestoreCollection('quotes', (cloudQuotes) => {
+      if (!isMounted) return;
+      setQuotes((prev) => {
+        const reconciled = reconcileWithCloud<Quote>(cloudQuotes, prev, 'quote');
+        const result = deduplicateItems(reconciled, 'quote');
+        localStorage.setItem('asphalt_quotes', JSON.stringify(result));
+        return result;
+      });
+    });
+
+    // Real-time accounts listener
+    const unsubAccounts = subscribeToFirestoreCollection('accounts', (cloudAccounts) => {
+      if (!isMounted) return;
+      setAccounts((prev) => {
+        const reconciled = reconcileWithCloud<AccountItem>(cloudAccounts, prev, 'account');
+        const result = deduplicateItems(reconciled, 'acc');
+        localStorage.setItem('asphalt_accounts', JSON.stringify(result));
+        return result;
+      });
+    });
+
+    // Real-time employees listener
+    const unsubEmployees = subscribeToFirestoreCollection('employees', (cloudEmployees) => {
+      if (!isMounted) return;
+      setEmployees((prev) => {
+        const reconciled = reconcileWithCloud<Employee>(cloudEmployees, prev, 'employee');
+        const result = deduplicateItems(reconciled, 'emp');
+        localStorage.setItem('asphalt_employees', JSON.stringify(result));
+        return result;
+      });
+    });
+
+    // Real-time partners listener
+    const unsubPartners = subscribeToFirestoreCollection('partners', (cloudPartners) => {
+      if (!isMounted) return;
+      setPartners((prev) => {
+        const reconciled = reconcileWithCloud<BusinessPartner>(cloudPartners, prev, 'partner');
+        const result = deduplicateItems(reconciled, 'part');
+        localStorage.setItem('asphalt_partners', JSON.stringify(result));
+        return result;
+      });
+    });
+
+    // Real-time users listener
+    const unsubUsers = subscribeToFirestoreCollection('users', (cloudUsers) => {
+      if (!isMounted) return;
+      if (cloudUsers.length > 0) {
+        setSystemUsers((prev) => {
+          const reconciled = reconcileWithCloud<SystemUser>(cloudUsers, prev, 'user');
+          const result = deduplicateItems(reconciled, 'user');
+          localStorage.setItem('asphalt_system_users', JSON.stringify(result));
+          return result;
+        });
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      if (unsubTx) unsubTx();
+      if (unsubQuotes) unsubQuotes();
+      if (unsubAccounts) unsubAccounts();
+      if (unsubEmployees) unsubEmployees();
+      if (unsubPartners) unsubPartners();
+      if (unsubUsers) unsubUsers();
+    };
+  }, []);
 
   // Initial startup cloud auto-pull
   useEffect(() => {

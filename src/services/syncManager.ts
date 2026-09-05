@@ -290,20 +290,41 @@ class SyncManager {
       (q) => q.entityId === entityId && q.entityType === entityType && q.status === 'pending'
     );
 
-    if (existingIndex >= 0 && action === 'update') {
-      const updatedQueue = [...this.queue];
-      updatedQueue[existingIndex] = {
-        ...updatedQueue[existingIndex],
-        payload: {
-          ...updatedQueue[existingIndex].payload,
-          ...payload,
-        },
-        timestamp: new Date().toISOString(),
-      };
-      this.queue = updatedQueue;
-      // Increment saved write by merging!
-      this.batchedWritesSaved += 1;
-      this.updateCachedStats();
+    if (existingIndex >= 0) {
+      if (action === 'delete') {
+        if (this.queue[existingIndex].action === 'create') {
+          // It was created locally and deleted before ever reaching the cloud: cancel both!
+          const updated = [...this.queue];
+          updated.splice(existingIndex, 1);
+          this.queue = updated;
+          this.batchedWritesSaved += 2;
+          this.updateCachedStats();
+        } else {
+          // Replace pending update with delete
+          const updated = [...this.queue];
+          updated[existingIndex] = {
+            ...updated[existingIndex],
+            action: 'delete',
+            payload,
+            timestamp: new Date().toISOString()
+          };
+          this.queue = updated;
+        }
+      } else if (action === 'update') {
+        const updatedQueue = [...this.queue];
+        updatedQueue[existingIndex] = {
+          ...updatedQueue[existingIndex],
+          payload: {
+            ...updatedQueue[existingIndex].payload,
+            ...payload,
+          },
+          timestamp: new Date().toISOString(),
+        };
+        this.queue = updatedQueue;
+        // Increment saved write by merging!
+        this.batchedWritesSaved += 1;
+        this.updateCachedStats();
+      }
     } else {
       const item: SyncQueueItem = {
         id: 'sync_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6),

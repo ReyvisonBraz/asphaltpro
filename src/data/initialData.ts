@@ -65,6 +65,19 @@ export const ROLE_PERMISSIONS_MAP: Record<UserRole, RolePermissions> = {
 
 export const INITIAL_SYSTEM_USERS: SystemUser[] = [
   {
+    id: 'user-admin-master',
+    name: 'Administrador (Google Master)',
+    email: 'littlefigther50@gmail.com',
+    role: 'admin',
+    roleTitle: 'Diretor de Operações (Admin Geral)',
+    department: 'Diretoria / Gestão',
+    avatarUrl: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&auto=format&fit=crop&q=80',
+    status: 'ativo',
+    phone: '(11) 99999-0000',
+    createdAt: '2024-01-01T08:00:00.000Z',
+    lastLogin: 'Agora'
+  },
+  {
     id: 'user-admin-principal',
     name: 'Administrador Principal',
     email: 'admin@empresa.com.br',
