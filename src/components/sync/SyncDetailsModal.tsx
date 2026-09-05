@@ -10,7 +10,7 @@ interface SyncDetailsModalProps {
 }
 
 export const SyncDetailsModal: React.FC<SyncDetailsModalProps> = ({ isOpen, onClose }) => {
-  const { exportFullBackup, showToast } = useApp();
+  const { exportFullBackup, showToast, pullFromCloud, isPullingFromCloud } = useApp();
 
   const networkState = useSyncExternalStore(
     (cb) => syncManager.subscribe(cb),
@@ -65,6 +65,7 @@ export const SyncDetailsModal: React.FC<SyncDetailsModalProps> = ({ isOpen, onCl
   const handleForceSync = async () => {
     setIsSyncing(true);
     await syncManager.processQueue();
+    await pullFromCloud(false);
     setIsSyncing(false);
   };
 
@@ -182,14 +183,24 @@ export const SyncDetailsModal: React.FC<SyncDetailsModalProps> = ({ isOpen, onCl
               Fechar
             </Button>
             <Button
+              variant="secondary"
+              size="sm"
+              icon="cloud_download"
+              isLoading={isPullingFromCloud}
+              disabled={networkState === 'offline' && isSimulating}
+              onClick={() => pullFromCloud(false)}
+            >
+              Baixar da Nuvem
+            </Button>
+            <Button
               variant="primary"
               size="sm"
               icon="sync"
-              isLoading={isSyncing || networkState === 'syncing'}
+              isLoading={isSyncing || networkState === 'syncing' || isPullingFromCloud}
               disabled={networkState === 'offline' && isSimulating}
               onClick={handleForceSync}
             >
-              Forçar Sincronização
+              Sincronizar Tudo
             </Button>
           </div>
         </div>
@@ -395,12 +406,37 @@ export const SyncDetailsModal: React.FC<SyncDetailsModalProps> = ({ isOpen, onCl
         {/* TAB 2: FIREBASE COMPANY CREDENTIALS */}
         {activeTab === 'firebase' && (
           <div className="flex flex-col gap-4">
+            {initialConfig?.isEnvManaged ? (
+              <div className="p-3.5 bg-emerald-50 border border-emerald-300 rounded-xl flex items-start gap-3">
+                <span className="material-symbols-outlined text-emerald-700 text-[22px] mt-0.5 shrink-0">
+                  verified
+                </span>
+                <div className="text-xs text-emerald-950 leading-relaxed">
+                  <strong className="block text-emerald-900 text-sm mb-1">
+                    Conexão Automática Ativa via Vercel (Variáveis de Ambiente)
+                  </strong>
+                  O sistema está utilizando o banco do Firebase configurado na Vercel (<code>{initialConfig.projectId}</code>).
+                  <br />
+                  Qualquer celular, balança ou computador que acessar o link da usina estará conectado automaticamente a este mesmo banco, sem precisar inserir códigos!
+                </div>
+              </div>
+            ) : (
+              <div className="p-3.5 bg-sky-50 border border-sky-200 rounded-xl flex items-start gap-3">
+                <span className="material-symbols-outlined text-sky-700 text-[20px] mt-0.5 shrink-0">
+                  public
+                </span>
+                <div className="text-xs text-sky-950 leading-relaxed">
+                  <strong>Configuração Definitiva na Vercel:</strong> Você pode cadastrar as chaves no painel da Vercel em <em>Settings &gt; Environment Variables</em> como <code>VITE_FIREBASE_PROJECT_ID</code> e <code>VITE_FIREBASE_API_KEY</code>. Assim, nenhum celular precisa digitar códigos!
+                </div>
+              </div>
+            )}
+
             <div className="p-3.5 bg-amber-50/80 border border-amber-200 rounded-xl flex items-start gap-3">
               <span className="material-symbols-outlined text-amber-700 text-[20px] mt-0.5 shrink-0">
                 business
               </span>
               <div className="text-xs text-amber-950 leading-relaxed">
-                <strong>Conta do Firebase para a Empresa:</strong> Quando você criar a conta do Google da empresa e o projeto no Firebase Console, basta colar os parâmetros abaixo. O sistema se conectará diretamente à nuvem corporativa.
+                <strong>Configuração Manual Local:</strong> Você também pode salvar os dados abaixo para conectar este dispositivo imediatamente ao banco da usina.
               </div>
             </div>
 

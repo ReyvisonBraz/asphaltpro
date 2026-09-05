@@ -1,13 +1,40 @@
-import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
-import { getFirestore, doc, setDoc, deleteDoc, getDoc, Firestore, serverTimestamp } from 'firebase/firestore';
+import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
+import { getFirestore, doc, setDoc, deleteDoc, collection, getDocs, Firestore, serverTimestamp } from 'firebase/firestore';
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut as firebaseSignOut, Auth, User as FirebaseUser } from 'firebase/auth';
 import { FirebaseProjectConfig } from '../types';
 
 const FIREBASE_CONFIG_STORAGE_KEY = 'asphaltpro_firebase_config';
 
 let firebaseAppInstance: FirebaseApp | null = null;
 let firestoreInstance: Firestore | null = null;
+let authInstance: Auth | null = null;
 
 export const getSavedFirebaseConfig = (): FirebaseProjectConfig | null => {
+  // 1. Check if environment variables are injected via Vercel / Vite build
+  try {
+    const envProjectId = import.meta.env.VITE_FIREBASE_PROJECT_ID;
+    const envApiKey = import.meta.env.VITE_FIREBASE_API_KEY;
+
+    if (envProjectId && envApiKey) {
+      const envAuthDomain = import.meta.env.VITE_FIREBASE_AUTH_DOMAIN;
+      const envStorageBucket = import.meta.env.VITE_FIREBASE_STORAGE_BUCKET;
+      const envAppId = import.meta.env.VITE_FIREBASE_APP_ID;
+
+      return {
+        projectId: String(envProjectId).trim(),
+        apiKey: String(envApiKey).trim(),
+        authDomain: envAuthDomain ? String(envAuthDomain).trim() : `${String(envProjectId).trim()}.firebaseapp.com`,
+        storageBucket: envStorageBucket ? String(envStorageBucket).trim() : `${String(envProjectId).trim()}.appspot.com`,
+        appId: envAppId ? String(envAppId).trim() : '',
+        isActive: true,
+        isEnvManaged: true
+      };
+    }
+  } catch (e) {
+    // ignore in environments without import.meta.env
+  }
+
+  // 2. Fallback to localStorage configured by user in the UI
   if (typeof window === 'undefined') return null;
   try {
     const saved = localStorage.getItem(FIREBASE_CONFIG_STORAGE_KEY);
@@ -42,12 +69,13 @@ export const removeFirebaseConfig = () => {
     localStorage.removeItem(FIREBASE_CONFIG_STORAGE_KEY);
     firebaseAppInstance = null;
     firestoreInstance = null;
+    authInstance = null;
   } catch (e) {
     console.error('Erro ao remover configuração do Firebase:', e);
   }
 };
 
-export const getFirestoreDb = (): Firestore | null => {
+export const getFirebaseAppInstance = (): FirebaseApp | null => {
   const config = getSavedFirebaseConfig();
   if (!config || !config.isActive || !config.projectId || !config.apiKey) {
     return null;
@@ -57,26 +85,83 @@ export const getFirestoreDb = (): Firestore | null => {
     if (!firebaseAppInstance) {
       const appName = 'asphaltpro-app';
       const existingApps = getApps();
-      const existing = existingApps.find(app => app.name === appName);
-      
-      firebaseAppInstance = existing || initializeApp({
-        apiKey: config.apiKey.trim(),
-        authDomain: config.authDomain ? config.authDomain.trim() : `${config.projectId}.firebaseapp.com`,
-        projectId: config.projectId.trim(),
-        storageBucket: config.storageBucket ? config.storageBucket.trim() : `${config.projectId}.appspot.com`,
-        messagingSenderId: config.messagingSenderId?.trim(),
-        appId: config.appId?.trim()
-      }, appName);
-    }
+      const existing = existingApps.find((app) => app.name === appName);
 
-    if (!firestoreInstance && firebaseAppInstance) {
-      firestoreInstance = getFirestore(firebaseAppInstance);
+      firebaseAppInstance =
+        existing ||
+        initializeApp(
+          {
+            apiKey: config.apiKey.trim(),
+            authDomain: config.authDomain
+              ? config.authDomain.trim()
+              : `${config.projectId.trim()}.firebaseapp.com`,
+            projectId: config.projectId.trim(),
+            storageBucket: config.storageBucket
+              ? config.storageBucket.trim()
+              : `${config.projectId.trim()}.appspot.com`,
+            messagingSenderId: config.messagingSenderId?.trim(),
+            appId: config.appId?.trim()
+          },
+          appName
+        );
     }
-
-    return firestoreInstance;
+    return firebaseAppInstance;
   } catch (e) {
     console.error('Falha ao inicializar SDK Firebase:', e);
     return null;
+  }
+};
+
+export const getFirestoreDb = (): Firestore | null => {
+  const app = getFirebaseAppInstance();
+  if (!app) return null;
+
+  try {
+    if (!firestoreInstance) {
+      firestoreInstance = getFirestore(app);
+    }
+    return firestoreInstance;
+  } catch (e) {
+    console.error('Falha ao obter instância do Firestore:', e);
+    return null;
+  }
+};
+
+export const getFirebaseAuth = (): Auth | null => {
+  const app = getFirebaseAppInstance();
+  if (!app) return null;
+
+  try {
+    if (!authInstance) {
+      authInstance = getAuth(app);
+    }
+    return authInstance;
+  } catch (e) {
+    console.error('Falha ao inicializar Firebase Auth:', e);
+    return null;
+  }
+};
+
+export const loginWithGooglePopup = async (): Promise<FirebaseUser> => {
+  const auth = getFirebaseAuth();
+  if (!auth) {
+    throw new Error('O Firebase não está configurado. Conecte o Project ID e API Key nas configurações de sincronização.');
+  }
+
+  const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: 'select_account' });
+  const result = await signInWithPopup(auth, provider);
+  return result.user;
+};
+
+export const logoutFirebaseAuth = async (): Promise<void> => {
+  try {
+    const auth = getFirebaseAuth();
+    if (auth && auth.currentUser) {
+      await firebaseSignOut(auth);
+    }
+  } catch (e) {
+    console.error('Erro ao encerrar sessão Firebase Auth:', e);
   }
 };
 
@@ -199,5 +284,29 @@ export const syncDocToFirestore = async (
   } catch (err) {
     console.error(`Erro ao gravar ${collectionName}/${docId} no Firestore:`, err);
     throw err;
+  }
+};
+
+/**
+ * Fetches all documents from a given Firestore collection.
+ * Used when a new device connects or when syncing data down from cloud.
+ */
+export const fetchCollectionFromFirestore = async (collectionName: string): Promise<any[]> => {
+  const db = getFirestoreDb();
+  if (!db) return [];
+
+  try {
+    const colRef = collection(db, collectionName);
+    const snap = await getDocs(colRef);
+    return snap.docs.map((d) => {
+      const data = d.data();
+      return {
+        id: d.id,
+        ...data
+      };
+    });
+  } catch (err) {
+    console.error(`Erro ao baixar documentos da coleção "${collectionName}":`, err);
+    return [];
   }
 };

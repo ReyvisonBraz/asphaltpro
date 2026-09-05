@@ -275,6 +275,7 @@ export interface FirebaseProjectConfig {
   messagingSenderId?: string;
   appId?: string;
   isActive: boolean;
+  isEnvManaged?: boolean;
 }
 
 export interface SyncOptimizationStats {

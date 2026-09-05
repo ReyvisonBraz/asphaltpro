@@ -1,6 +1,6 @@
-// Asphalt Pro Service Worker - Offline Cache
-const CACHE_NAME = 'asphaltpro-v1';
-const ASSETS_TO_CACHE = [
+// Asphalt Pro Service Worker - Modern Network-First PWA Cache
+const CACHE_NAME = 'asphaltpro-v2';
+const STATIC_ASSETS = [
   '/',
   '/index.html',
   '/manifest.json'
@@ -9,7 +9,7 @@ const ASSETS_TO_CACHE = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(ASSETS_TO_CACHE);
+      return cache.addAll(STATIC_ASSETS);
     })
   );
   self.skipWaiting();
@@ -31,30 +31,51 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Only handle GET requests for offline caching
   if (event.request.method !== 'GET') return;
 
+  const url = new URL(event.request.url);
+
+  // 1. Navigation requests (HTML documents): Always Network-First!
+  // This avoids stale bundle hashes causing blank screens that require manual refresh.
+  if (event.request.mode === 'navigate' || event.request.destination === 'document') {
+    event.respondWith(
+      fetch(event.request)
+        .then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            const copy = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+          }
+          return networkResponse;
+        })
+        .catch(async () => {
+          // Fallback to cached index.html when offline in usina
+          const cached = await caches.match('/index.html') || await caches.match('/');
+          if (cached) return cached;
+          return new Response('Usina Offline. Recarregue quando a conexão for restabelecida.', {
+            headers: { 'Content-Type': 'text/html; charset=utf-8' }
+          });
+        })
+    );
+    return;
+  }
+
+  // 2. Ignore non-HTTP / chrome-extension requests
+  if (!url.protocol.startsWith('http')) return;
+
+  // 3. For all other assets: Stale-While-Revalidate
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        // Fetch fresh copy in background (Stale While Revalidate)
-        fetch(event.request)
-          .then((networkResponse) => {
-            if (networkResponse && networkResponse.status === 200) {
-              caches.open(CACHE_NAME).then((cache) => {
-                cache.put(event.request, networkResponse);
-              });
-            }
-          })
-          .catch(() => {});
-        return cachedResponse;
-      }
-      return fetch(event.request).catch(() => {
-        // Fallback for document navigation
-        if (event.request.mode === 'navigate') {
-          return caches.match('/index.html');
-        }
-      });
+      const fetchPromise = fetch(event.request)
+        .then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            const copy = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+          }
+          return networkResponse;
+        })
+        .catch(() => cachedResponse);
+
+      return cachedResponse || fetchPromise;
     })
   );
 });

@@ -73,9 +73,61 @@ export const INITIAL_SYSTEM_USERS: SystemUser[] = [
     department: 'Diretoria / Gestão',
     avatarUrl: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&auto=format&fit=crop&q=80',
     status: 'ativo',
-    phone: '(00) 00000-0000',
+    phone: '(11) 99999-0001',
     createdAt: '2024-01-01T08:00:00.000Z',
     lastLogin: 'Agora'
+  },
+  {
+    id: 'user-marcelo-admin',
+    name: 'Marcelo Silva (Diretoria)',
+    email: 'marcelo@asphaltpro.com.br',
+    role: 'admin',
+    roleTitle: 'Diretor de Operações & Gestor',
+    department: 'Diretoria',
+    avatarUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
+    status: 'ativo',
+    phone: '(11) 99999-0002',
+    createdAt: '2024-01-01T08:00:00.000Z',
+    lastLogin: 'Hoje'
+  },
+  {
+    id: 'user-beatriz-fin',
+    name: 'Beatriz Santos',
+    email: 'beatriz@asphaltpro.com.br',
+    role: 'financeiro',
+    roleTitle: 'Gerente Financeira',
+    department: 'Financeiro',
+    avatarUrl: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80',
+    status: 'ativo',
+    phone: '(11) 99999-0003',
+    createdAt: '2024-01-01T08:00:00.000Z',
+    lastLogin: 'Ontem'
+  },
+  {
+    id: 'user-lucas-com',
+    name: 'Lucas Almeida',
+    email: 'lucas@asphaltpro.com.br',
+    role: 'comercial',
+    roleTitle: 'Engenheiro Comercial',
+    department: 'Comercial & Propostas',
+    avatarUrl: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=150&auto=format&fit=crop&q=80',
+    status: 'ativo',
+    phone: '(11) 99999-0004',
+    createdAt: '2024-01-01T08:00:00.000Z',
+    lastLogin: 'Há 2 dias'
+  },
+  {
+    id: 'user-valdir-op',
+    name: 'Valdir Ferreira',
+    email: 'valdir@asphaltpro.com.br',
+    role: 'operador',
+    roleTitle: 'Operador de Balança',
+    department: 'Pista & Balança',
+    avatarUrl: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80',
+    status: 'ativo',
+    phone: '(11) 99999-0005',
+    createdAt: '2024-01-01T08:00:00.000Z',
+    lastLogin: 'Há 4 horas'
   }
 ];
 

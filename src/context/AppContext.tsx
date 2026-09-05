@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { syncManager } from '../services/syncManager';
 import { errorDiagnosticsService } from '../services/errorDiagnosticsService';
+import { logoutFirebaseAuth, getSavedFirebaseConfig, fetchCollectionFromFirestore } from '../services/firebaseConfig';
 import {
   exportSystemJsonBackup,
   exportTransactionsCsv,
@@ -57,6 +58,7 @@ interface AppContextType {
   systemUsers: SystemUser[];
   switchUser: (userId: string) => void;
   login: (email: string, pass: string, roleOverride?: UserRole) => boolean;
+  loginWithGoogleUser: (googleUser: { displayName?: string | null; email?: string | null; photoURL?: string | null; uid?: string }) => boolean;
   logout: () => void;
   currentView: ViewMode;
   setCurrentView: (view: ViewMode) => void;
@@ -211,10 +213,12 @@ interface AppContextType {
   totalPendentePagar: number;
   totalPendenteReceber: number;
 
-  // Backup & Restore
+  // Backup & Restore & Cloud Sync
   exportFullBackup: () => void;
   importFullBackup: (jsonContent: string) => boolean;
   exportCsvData: (type: 'transacoes' | 'contas' | 'orcamentos' | 'parceiros' | 'colaboradores' | 'todos') => void;
+  pullFromCloud: (silent?: boolean) => Promise<{ success: boolean; count: number }>;
+  isPullingFromCloud: boolean;
 
   // Reset to default data
   resetAllData: () => void;
@@ -333,7 +337,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Auth state
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
     const saved = localStorage.getItem('asphalt_auth');
-    return saved ? JSON.parse(saved) : true; // default logged in for immediate review
+    return saved ? JSON.parse(saved) : false; // default to false: forces Login view on first visit
   });
 
   // System Users & Roles State
@@ -959,7 +963,79 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return true;
   };
 
+  const loginWithGoogleUser = (googleUser: {
+    displayName?: string | null;
+    email?: string | null;
+    photoURL?: string | null;
+    uid?: string;
+  }) => {
+    const userEmail = (googleUser.email || '').trim();
+    const userName = googleUser.displayName?.trim() || userEmail.split('@')[0] || 'Usuário Google';
+    const userAvatar =
+      googleUser.photoURL ||
+      `https://ui-avatars.com/api/?name=${encodeURIComponent(userName)}&background=835400&color=fff`;
+
+    // Check if user already exists in systemUsers
+    const matchedUser = systemUsers.find(
+      (u) => u.email.toLowerCase() === userEmail.toLowerCase()
+    );
+
+    if (matchedUser) {
+      if (matchedUser.status === 'inativo') {
+        showToast('Esta conta de usuário foi inativada. Contate o Administrador.', 'error');
+        return false;
+      }
+      const updatedProfile: UserProfile = {
+        id: matchedUser.id,
+        name: matchedUser.name,
+        role: matchedUser.roleTitle,
+        userRole: matchedUser.role,
+        email: matchedUser.email,
+        avatarUrl: userAvatar || matchedUser.avatarUrl,
+        status: 'Active'
+      };
+      setUser(updatedProfile);
+    } else {
+      // First time logging in with this Google account: register as system user (Admin by default)
+      const role: UserRole = 'admin';
+      const roleTitle = 'Diretor de Operações (Google)';
+
+      const newSystemUser: SystemUser = {
+        id: `user-google-${googleUser.uid || Date.now()}`,
+        name: userName,
+        email: userEmail,
+        role,
+        roleTitle,
+        department: 'Diretoria / Gestão',
+        avatarUrl: userAvatar,
+        status: 'ativo',
+        createdAt: new Date().toISOString(),
+        lastLogin: new Date().toISOString()
+      };
+
+      setSystemUsers((prev) => [newSystemUser, ...prev]);
+      syncManager.enqueue('user', 'create', newSystemUser.id, newSystemUser);
+
+      const profile: UserProfile = {
+        id: newSystemUser.id,
+        name: userName,
+        role: roleTitle,
+        userRole: role,
+        email: userEmail,
+        avatarUrl: userAvatar,
+        status: 'Active'
+      };
+      setUser(profile);
+    }
+
+    setIsAuthenticated(true);
+    showToast(`Bem-vindo(a), ${userName}! (Conectado via Google)`, 'success');
+    syncManager.addLog(`Login via Google Auth efetuado por ${userName} (${userEmail})`, 'info');
+    return true;
+  };
+
   const logout = () => {
+    logoutFirebaseAuth().catch(() => {});
     setIsAuthenticated(false);
     showToast('Sessão encerrada com sucesso.', 'info');
   };
@@ -1937,6 +2013,136 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     showToast('Dados do sistema restaurados para o padrão de fábrica.', 'info');
   };
 
+  const [isPullingFromCloud, setIsPullingFromCloud] = useState(false);
+
+  const pullFromCloud = async (silent: boolean = false): Promise<{ success: boolean; count: number }> => {
+    const config = getSavedFirebaseConfig();
+    if (!config || !config.isActive || !config.projectId || !config.apiKey) {
+      if (!silent) {
+        showToast('Firebase não configurado ou inativo.', 'info');
+      }
+      return { success: false, count: 0 };
+    }
+
+    setIsPullingFromCloud(true);
+    try {
+      const [
+        cloudTx,
+        cloudQuotes,
+        cloudAccounts,
+        cloudEmployees,
+        cloudPartners,
+        cloudUsers
+      ] = await Promise.all([
+        fetchCollectionFromFirestore('transactions'),
+        fetchCollectionFromFirestore('quotes'),
+        fetchCollectionFromFirestore('accounts'),
+        fetchCollectionFromFirestore('employees'),
+        fetchCollectionFromFirestore('partners'),
+        fetchCollectionFromFirestore('users')
+      ]);
+
+      let totalPulled = 0;
+
+      if (cloudTx.length > 0) {
+        setTransactions((prev) => {
+          const mergedMap = new Map<string, Transaction>();
+          prev.forEach((t) => mergedMap.set(t.id, t));
+          cloudTx.forEach((t: any) => mergedMap.set(t.id, t as Transaction));
+          const result = deduplicateTransactionsList(Array.from(mergedMap.values()));
+          localStorage.setItem('asphalt_transactions', JSON.stringify(result));
+          return result;
+        });
+        totalPulled += cloudTx.length;
+      }
+
+      if (cloudQuotes.length > 0) {
+        setQuotes((prev) => {
+          const mergedMap = new Map<string, Quote>();
+          prev.forEach((q) => mergedMap.set(q.id, q));
+          cloudQuotes.forEach((q: any) => mergedMap.set(q.id, q as Quote));
+          const result = deduplicateItems(Array.from(mergedMap.values()), 'quote');
+          localStorage.setItem('asphalt_quotes', JSON.stringify(result));
+          return result;
+        });
+        totalPulled += cloudQuotes.length;
+      }
+
+      if (cloudAccounts.length > 0) {
+        setAccounts((prev) => {
+          const mergedMap = new Map<string, AccountItem>();
+          prev.forEach((a) => mergedMap.set(a.id, a));
+          cloudAccounts.forEach((a: any) => mergedMap.set(a.id, a as AccountItem));
+          const result = deduplicateItems(Array.from(mergedMap.values()), 'acc');
+          localStorage.setItem('asphalt_accounts', JSON.stringify(result));
+          return result;
+        });
+        totalPulled += cloudAccounts.length;
+      }
+
+      if (cloudEmployees.length > 0) {
+        setEmployees((prev) => {
+          const mergedMap = new Map<string, Employee>();
+          prev.forEach((e) => mergedMap.set(e.id, e));
+          cloudEmployees.forEach((e: any) => mergedMap.set(e.id, e as Employee));
+          const result = deduplicateItems(Array.from(mergedMap.values()), 'emp');
+          localStorage.setItem('asphalt_employees', JSON.stringify(result));
+          return result;
+        });
+        totalPulled += cloudEmployees.length;
+      }
+
+      if (cloudPartners.length > 0) {
+        setPartners((prev) => {
+          const mergedMap = new Map<string, BusinessPartner>();
+          prev.forEach((p) => mergedMap.set(p.id, p));
+          cloudPartners.forEach((p: any) => mergedMap.set(p.id, p as BusinessPartner));
+          const result = deduplicateItems(Array.from(mergedMap.values()), 'part');
+          localStorage.setItem('asphalt_partners', JSON.stringify(result));
+          return result;
+        });
+        totalPulled += cloudPartners.length;
+      }
+
+      if (cloudUsers.length > 0) {
+        setSystemUsers((prev) => {
+          const mergedMap = new Map<string, SystemUser>();
+          prev.forEach((u) => mergedMap.set(u.id, u));
+          cloudUsers.forEach((u: any) => mergedMap.set(u.id, u as SystemUser));
+          const result = deduplicateItems(Array.from(mergedMap.values()), 'user');
+          localStorage.setItem('asphalt_system_users', JSON.stringify(result));
+          return result;
+        });
+        totalPulled += cloudUsers.length;
+      }
+
+      syncManager.addLog(`Nuvem sincronizada: ${totalPulled} registros recebidos do Firebase`, 'success', totalPulled);
+      if (!silent) {
+        showToast(`${totalPulled} registro(s) sincronizados da nuvem com sucesso!`, 'success');
+      }
+      return { success: true, count: totalPulled };
+    } catch (err: any) {
+      console.error('Erro ao puxar dados da nuvem:', err);
+      syncManager.addLog(`Falha ao baixar dados da nuvem: ${err?.message || err}`, 'error');
+      if (!silent) {
+        showToast('Falha ao baixar dados da nuvem: ' + (err?.message || 'Erro desconhecido'), 'error');
+      }
+      return { success: false, count: 0 };
+    } finally {
+      setIsPullingFromCloud(false);
+    }
+  };
+
+  // Initial startup cloud auto-pull
+  useEffect(() => {
+    const config = getSavedFirebaseConfig();
+    if (config && config.isActive && config.projectId && config.apiKey) {
+      if (typeof navigator !== 'undefined' && navigator.onLine) {
+        pullFromCloud(true);
+      }
+    }
+  }, []);
+
   // Financial aggregates calculation
   const entradasDoMes = transactions
     .filter(t => t.tipo === 'entrada')
@@ -1968,6 +2174,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         toggleSystemUserStatus,
         deleteSystemUser,
         login,
+        loginWithGoogleUser,
         logout,
         currentView,
         setCurrentView,
@@ -2071,6 +2278,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         exportFullBackup,
         importFullBackup,
         exportCsvData,
+        pullFromCloud,
+        isPullingFromCloud,
         resetAllData
       }}
     >
