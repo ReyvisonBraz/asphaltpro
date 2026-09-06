@@ -242,6 +242,7 @@ export interface SystemUser {
   createdAt: string;
   lastLogin?: string;
   phone?: string;
+  offlinePassword?: string; // Senha para autenticação offline quando sem internet
 }
 
 export interface UserProfile {

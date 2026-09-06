@@ -1,16 +1,30 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Button, Input, Modal } from '../common';
-import { UserRole } from '../../types';
 import { loginWithGooglePopup, getSavedFirebaseConfig } from '../../services/firebaseConfig';
-import { syncManager } from '../../services/syncManager';
+import { securityRateLimitService } from '../../services/securityRateLimitService';
 
 export const LoginView: React.FC = () => {
-  const { login, loginWithGoogleUser, user, systemUsers, showToast } = useApp();
-  const [loginMode, setLoginMode] = useState<'all' | 'google' | 'offline'>('all');
-  const [email, setEmail] = useState('admin@empresa.com.br');
-  const [password, setPassword] = useState('admin123');
+  const { login, loginWithGoogleUser, showToast } = useApp();
+  
+  // Safe credential state (no exposed defaults)
+  const [email, setEmail] = useState(() => {
+    try {
+      return localStorage.getItem('asphalt_remembered_email') || '';
+    } catch {
+      return '';
+    }
+  });
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
+
+  // Security Rate Limiting & Lockout
+  const [isLocked, setIsLocked] = useState(false);
+  const [lockoutSeconds, setLockoutSeconds] = useState(0);
+  const [failedMessage, setFailedMessage] = useState<string | null>(null);
+
+  // Modals & Loaders
   const [isForgotPasswordOpen, setIsForgotPasswordOpen] = useState(false);
   const [forgotEmail, setForgotEmail] = useState('');
   const [forgotSent, setForgotSent] = useState(false);
@@ -21,6 +35,40 @@ export const LoginView: React.FC = () => {
   const firebaseConfig = getSavedFirebaseConfig();
   const isFirebaseActive = !!(firebaseConfig && firebaseConfig.projectId && firebaseConfig.apiKey && firebaseConfig.isActive);
 
+  // Check initial rate limit status
+  useEffect(() => {
+    const status = securityRateLimitService.checkRateLimit(email || 'global');
+    if (status.isLocked) {
+      setIsLocked(true);
+      setLockoutSeconds(status.remainingSeconds);
+    }
+  }, [email]);
+
+  // Lockout countdown timer
+  useEffect(() => {
+    if (!isLocked || lockoutSeconds <= 0) {
+      if (isLocked && lockoutSeconds <= 0) {
+        setIsLocked(false);
+        setFailedMessage(null);
+      }
+      return;
+    }
+
+    const interval = setInterval(() => {
+      setLockoutSeconds((prev) => {
+        if (prev <= 1) {
+          setIsLocked(false);
+          setFailedMessage(null);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [isLocked, lockoutSeconds]);
+
+  // Online / Offline monitor
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
     const handleOffline = () => setIsOnline(false);
@@ -35,12 +83,41 @@ export const LoginView: React.FC = () => {
 
   const handleLoginSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isLocked) {
+      showToast(`Acesso temporariamente bloqueado. Aguarde ${lockoutSeconds}s.`, 'error');
+      return;
+    }
+
+    if (!email.trim() || !password.trim()) {
+      showToast('Por favor, informe seu e-mail e senha de acesso.', 'info');
+      return;
+    }
+
     setIsLoadingOffline(true);
+    setFailedMessage(null);
+
     setTimeout(() => {
-      const success = login(email, password);
+      const res = login(email, password);
       setIsLoadingOffline(false);
-      if (success) {
-        showToast('Login local/offline realizado com sucesso!', 'success');
+
+      if (res.success) {
+        if (rememberMe) {
+          try {
+            localStorage.setItem('asphalt_remembered_email', email.trim());
+          } catch {}
+        } else {
+          try {
+            localStorage.removeItem('asphalt_remembered_email');
+          } catch {}
+        }
+      } else {
+        if (res.isLocked) {
+          setIsLocked(true);
+          setLockoutSeconds(res.remainingSeconds || 60);
+          setFailedMessage(res.message);
+        } else {
+          setFailedMessage(res.message);
+        }
       }
     }, 250);
   };
@@ -53,13 +130,15 @@ export const LoginView: React.FC = () => {
 
     if (!isFirebaseActive) {
       showToast(
-        'O Firebase da empresa ainda não está configurado. Entre com e-mail/senha no modo offline e acesse Configurações > Sincronização Nuvem.',
+        'O Firebase da empresa ainda não foi configurado. Entre com seu e-mail/senha no modo offline e acesse Configurações > Sincronização Nuvem.',
         'info'
       );
       return;
     }
 
     setIsLoadingGoogle(true);
+    setFailedMessage(null);
+
     try {
       const googleUser = await loginWithGooglePopup();
       if (googleUser) {
@@ -76,7 +155,7 @@ export const LoginView: React.FC = () => {
         showToast('Janela de login do Google foi fechada.', 'info');
       } else if (err?.code === 'auth/unauthorized-domain') {
         showToast(
-          'Domínio da Vercel não autorizado no Firebase Auth. No console do Firebase, acesse Authentication > Settings > Authorized domains e adicione o domínio do app.',
+          'Domínio do app não autorizado no Firebase Auth. No console do Firebase, acesse Authentication > Settings > Authorized domains.',
           'error'
         );
       } else if (err?.code === 'auth/operation-not-allowed') {
@@ -92,16 +171,6 @@ export const LoginView: React.FC = () => {
     }
   };
 
-  const handleQuickRoleLogin = (userEmail: string, role: UserRole) => {
-    setEmail(userEmail);
-    setIsLoadingOffline(true);
-    setTimeout(() => {
-      login(userEmail, 'senha123', role);
-      setIsLoadingOffline(false);
-      showToast(`Acesso concedido como perfil ${role.toUpperCase()}.`, 'info');
-    }, 200);
-  };
-
   const handleForgotSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setForgotSent(true);
@@ -112,7 +181,7 @@ export const LoginView: React.FC = () => {
       {/* Background industrial pattern */}
       <div className="absolute inset-0 bg-[radial-gradient(#C7C6CA_1px,transparent_1px)] [background-size:24px_24px] opacity-30 pointer-events-none" />
 
-      <div className="w-full max-w-lg bg-white rounded-2xl shadow-xl border border-[#DEE2E6] overflow-hidden z-10 animate-in fade-in zoom-in-95 duration-200">
+      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-[#DEE2E6] overflow-hidden z-10 animate-in fade-in zoom-in-95 duration-200">
         {/* Top Brand Banner */}
         <div className="bg-[#010102] p-6 sm:p-7 text-center flex flex-col items-center border-b border-[#1c1c1e] relative">
           {/* Real-time Status Badge */}
@@ -159,7 +228,7 @@ export const LoginView: React.FC = () => {
                 Acesso Online Corporativo
               </span>
               <span className="text-[10px] text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
-                Sincronização Nuvem
+                Whitelist Ativa
               </span>
             </div>
 
@@ -172,7 +241,7 @@ export const LoginView: React.FC = () => {
               {isLoadingGoogle ? (
                 <div className="flex items-center gap-2 text-xs text-gray-600">
                   <span className="material-symbols-outlined animate-spin text-[18px]">progress_activity</span>
-                  Autenticando com o Google...
+                  Autenticando com Google...
                 </div>
               ) : (
                 <>
@@ -200,15 +269,46 @@ export const LoginView: React.FC = () => {
                 </>
               )}
             </button>
+            <p className="text-[10px] text-gray-400 text-center">
+              Restrito a e-mails cadastrados previamente pela administração.
+            </p>
           </div>
 
           {/* DIVIDER */}
           <div className="relative flex items-center justify-center">
             <div className="border-t border-gray-200 w-full" />
             <span className="bg-white px-3 text-[11px] font-bold uppercase tracking-wider text-gray-400 shrink-0">
-              Ou Acesso Offline / Balança
+              Ou Acesso Offline com Credenciais
             </span>
           </div>
+
+          {/* SECURITY WARNING / LOCKOUT BANNER */}
+          {isLocked && (
+            <div className="p-3 bg-red-50 border border-red-200 rounded-xl flex items-start gap-2.5 text-xs text-red-900 animate-in fade-in">
+              <span className="material-symbols-outlined text-red-600 text-[20px] shrink-0 animate-pulse mt-0.5">
+                lock_clock
+              </span>
+              <div className="flex-1">
+                <span className="font-bold block text-red-950">Acesso Bloqueado Temporariamente</span>
+                <span className="text-red-800 text-[11px] leading-relaxed block mt-0.5">
+                  Muitas tentativas consecutivas incorretas. Por segurança, aguarde{' '}
+                  <strong className="text-red-950 underline font-black">{lockoutSeconds} segundos</strong>{' '}
+                  para tentar novamente.
+                </span>
+              </div>
+            </div>
+          )}
+
+          {failedMessage && !isLocked && (
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-2.5 text-xs text-amber-900 animate-in fade-in">
+              <span className="material-symbols-outlined text-amber-600 text-[18px] shrink-0">
+                warning
+              </span>
+              <span className="flex-1 text-[11px] font-medium leading-tight">
+                {failedMessage}
+              </span>
+            </div>
+          )}
 
           {/* SECTION 2: OFFLINE / LOCAL LOGIN (EMAIL & PASSWORD) */}
           <form onSubmit={handleLoginSubmit} className="space-y-3.5">
@@ -217,45 +317,40 @@ export const LoginView: React.FC = () => {
                 <span className="material-symbols-outlined text-[15px] text-amber-600">wifi_off</span>
                 Acesso Local Independente de Internet
               </span>
-              <span className="text-[10px] text-gray-400">Banco Local PWA</span>
-            </div>
-
-            <div className="p-2.5 rounded-lg bg-amber-50/80 border border-amber-200/80 text-[11px] text-amber-950 flex items-center justify-between">
-              <div>
-                <span className="font-bold block text-amber-900">Administrador Geral Padrão</span>
-                <span>E-mail: <strong>admin@empresa.com.br</strong> &bull; Senha: <strong>admin123</strong></span>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setEmail('admin@empresa.com.br');
-                  setPassword('admin123');
-                }}
-                className="px-2 py-1 rounded bg-amber-200/70 hover:bg-amber-200 font-bold text-amber-900 cursor-pointer text-[10px]"
-              >
-                Preencher
-              </button>
+              <span className="text-[10px] text-gray-400">Pista / Balança</span>
             </div>
 
             <Input
               label="E-mail Cadastrado"
               type="email"
               required
+              disabled={isLocked}
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="usuario@asphaltpro.com.br"
+              onChange={(e) => {
+                setEmail(e.target.value);
+                setFailedMessage(null);
+              }}
+              placeholder="seu.email@empresa.com.br"
               leftIcon="mail"
             />
 
-            <Input
-              label="Senha de Acesso"
-              type="password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Sua senha"
-              leftIcon="lock"
-            />
+            <div>
+              <Input
+                label="Senha de Acesso"
+                type={showPassword ? 'text' : 'password'}
+                required
+                disabled={isLocked}
+                value={password}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  setFailedMessage(null);
+                }}
+                placeholder="Digite sua senha"
+                leftIcon="lock"
+                rightIcon={showPassword ? 'visibility_off' : 'visibility'}
+                onRightIconClick={() => setShowPassword(!showPassword)}
+              />
+            </div>
 
             <div className="flex items-center justify-between text-xs pt-0.5">
               <label className="flex items-center gap-2 cursor-pointer text-gray-600">
@@ -265,13 +360,13 @@ export const LoginView: React.FC = () => {
                   onChange={(e) => setRememberMe(e.target.checked)}
                   className="rounded border-gray-300 text-[#835400] focus:ring-[#835400] cursor-pointer"
                 />
-                <span>Lembrar credenciais</span>
+                <span className="text-[11px]">Lembrar e-mail</span>
               </label>
 
               <button
                 type="button"
                 onClick={() => setIsForgotPasswordOpen(true)}
-                className="text-[#835400] font-bold hover:underline cursor-pointer"
+                className="text-[#835400] font-bold hover:underline cursor-pointer text-[11px]"
               >
                 Esqueceu a senha?
               </button>
@@ -282,77 +377,24 @@ export const LoginView: React.FC = () => {
               variant="warning"
               size="md"
               fullWidth
+              disabled={isLocked}
               isLoading={isLoadingOffline}
-              icon="login"
+              icon={isLocked ? 'lock' : 'login'}
             >
-              Entrar no Modo Offline
+              {isLocked ? `Bloqueado (${lockoutSeconds}s)` : 'Entrar no Modo Offline'}
             </Button>
           </form>
 
-          {/* SECTION 3: FAST ROLE SIMULATOR / QUICK LOGIN */}
-          <div className="pt-3 border-t border-gray-100">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">
-                Acesso Rápido por Perfil Operacional
-              </span>
-              <span className="text-[10px] text-gray-400">1-clique</span>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => handleQuickRoleLogin('marcelo@asphaltpro.com.br', 'admin')}
-                className="p-2.5 rounded-xl border border-amber-200 bg-amber-50/60 hover:bg-amber-100/80 text-left transition-all flex items-center gap-2 text-xs font-bold text-amber-950 cursor-pointer"
-              >
-                <span className="material-symbols-outlined text-[18px] text-amber-700">shield_person</span>
-                <div className="min-w-0">
-                  <span className="block truncate">Diretor (Admin)</span>
-                  <span className="text-[10px] font-normal text-amber-800/80 block">Acesso Total</span>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleQuickRoleLogin('beatriz@asphaltpro.com.br', 'financeiro')}
-                className="p-2.5 rounded-xl border border-blue-200 bg-blue-50/60 hover:bg-blue-100/80 text-left transition-all flex items-center gap-2 text-xs font-bold text-blue-950 cursor-pointer"
-              >
-                <span className="material-symbols-outlined text-[18px] text-blue-700">account_balance</span>
-                <div className="min-w-0">
-                  <span className="block truncate">Financeiro</span>
-                  <span className="text-[10px] font-normal text-blue-800/80 block">DRE & Contas</span>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleQuickRoleLogin('lucas@asphaltpro.com.br', 'comercial')}
-                className="p-2.5 rounded-xl border border-emerald-200 bg-emerald-50/60 hover:bg-emerald-100/80 text-left transition-all flex items-center gap-2 text-xs font-bold text-emerald-950 cursor-pointer"
-              >
-                <span className="material-symbols-outlined text-[18px] text-emerald-700">request_quote</span>
-                <div className="min-w-0">
-                  <span className="block truncate">Comercial</span>
-                  <span className="text-[10px] font-normal text-emerald-800/80 block">Orçamentos A4</span>
-                </div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleQuickRoleLogin('valdir@asphaltpro.com.br', 'operador')}
-                className="p-2.5 rounded-xl border border-orange-200 bg-orange-50/60 hover:bg-orange-100/80 text-left transition-all flex items-center gap-2 text-xs font-bold text-orange-950 cursor-pointer"
-              >
-                <span className="material-symbols-outlined text-[18px] text-orange-700">local_shipping</span>
-                <div className="min-w-0">
-                  <span className="block truncate">Operador Balança</span>
-                  <span className="text-[10px] font-normal text-orange-800/80 block">Pista & Despesas</span>
-                </div>
-              </button>
-            </div>
+          {/* Security Information Footer */}
+          <div className="pt-2 flex items-center justify-center gap-1.5 text-[10px] text-gray-400 text-center">
+            <span className="material-symbols-outlined text-[14px] text-emerald-600">shield</span>
+            <span>Proteção contra força bruta ativa &bull; Máx 5 tentativas &bull; Rate Limit</span>
           </div>
         </div>
 
         {/* Footer info */}
-        <div className="bg-[#F8F9FA] px-8 py-3.5 border-t border-[#DEE2E6] text-center text-[11px] text-gray-500">
-          Asphalt Pro v2.5 • Sistema de Fluxo de Caixa para Usinas de Asfalto
+        <div className="bg-[#F8F9FA] px-8 py-3 border-t border-[#DEE2E6] text-center text-[11px] text-gray-500">
+          Asphalt Pro v2.5 &bull; Gestão Operacional e Financeira de Usina
         </div>
       </div>
 
@@ -364,8 +406,8 @@ export const LoginView: React.FC = () => {
             setIsForgotPasswordOpen(false);
             setForgotSent(false);
           }}
-          title="Recuperação de Senha"
-          subtitle="Redefina seu acesso corporativo"
+          title="Recuperação de Acesso"
+          subtitle="Redefinição de senha com a administração"
           size="sm"
           footer={
             forgotSent ? (
@@ -394,7 +436,7 @@ export const LoginView: React.FC = () => {
                   size="sm"
                   onClick={handleForgotSubmit}
                 >
-                  Enviar Instruções
+                  Solicitar Redefinição
                 </Button>
               </>
             )
@@ -402,13 +444,12 @@ export const LoginView: React.FC = () => {
         >
           {forgotSent ? (
             <div className="p-4 bg-emerald-50 rounded-xl border border-emerald-200 text-xs text-emerald-900 leading-relaxed">
-              Um link seguro de redefinição de acesso foi encaminhado para{' '}
-              <strong>{forgotEmail || email}</strong>.
+              Solicitação registrada. Se o e-mail <strong>{forgotEmail || email}</strong> estiver cadastrado na equipe, o Administrador Geral poderá redefinir sua senha offline em <strong>Configurações &gt; Usuários &amp; Permissões</strong>.
             </div>
           ) : (
             <form onSubmit={handleForgotSubmit} className="space-y-3">
-              <p className="text-xs text-gray-600">
-                Informe o seu e-mail cadastrado na usina para receber o link de recuperação.
+              <p className="text-xs text-gray-600 leading-relaxed">
+                Por segurança operacional da usina, a redefinição de senhas offline é gerenciada pela Diretoria/Administração em Configurações.
               </p>
               <Input
                 label="E-mail Cadastrado"
@@ -416,7 +457,7 @@ export const LoginView: React.FC = () => {
                 required
                 value={forgotEmail}
                 onChange={(e) => setForgotEmail(e.target.value)}
-                placeholder="seu.email@asphaltpro.com.br"
+                placeholder="seu.email@empresa.com.br"
                 leftIcon="mail"
               />
             </form>

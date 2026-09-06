@@ -64,6 +64,8 @@ export const UsuariosViewTab: React.FC = () => {
   // Form State
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [offlinePassword, setOfflinePassword] = useState('');
+  const [showModalPassword, setShowModalPassword] = useState(false);
   const [role, setRole] = useState<UserRole>('operador');
   const [roleTitle, setRoleTitle] = useState('');
   const [department, setDepartment] = useState('');
@@ -75,6 +77,8 @@ export const UsuariosViewTab: React.FC = () => {
     setEditingUser(null);
     setName('');
     setEmail('');
+    setOfflinePassword('');
+    setShowModalPassword(false);
     setRole('operador');
     setRoleTitle('Operador de Balança');
     setDepartment('Usina & Operações');
@@ -87,6 +91,8 @@ export const UsuariosViewTab: React.FC = () => {
     setEditingUser(user);
     setName(user.name);
     setEmail(user.email);
+    setOfflinePassword(user.offlinePassword || '');
+    setShowModalPassword(false);
     setRole(user.role);
     setRoleTitle(user.roleTitle);
     setDepartment(user.department);
@@ -129,16 +135,19 @@ export const UsuariosViewTab: React.FC = () => {
       updateSystemUser(editingUser.id, {
         name,
         email,
+        offlinePassword: offlinePassword.trim() || undefined,
         role,
         roleTitle: roleTitle || ROLE_INFO[role].label,
         department: department || 'Usina de Asfalto',
         phone,
         avatarUrl
       });
+      showToast(`Usuário ${name} atualizado com sucesso!`, 'success');
     } else {
       addSystemUser({
         name,
         email,
+        offlinePassword: offlinePassword.trim() || undefined,
         role,
         roleTitle: roleTitle || ROLE_INFO[role].label,
         department: department || 'Usina de Asfalto',
@@ -146,6 +155,7 @@ export const UsuariosViewTab: React.FC = () => {
         avatarUrl,
         status: 'ativo'
       });
+      showToast(`Novo usuário ${name} autorizado e cadastrado!`, 'success');
     }
     setIsModalOpen(false);
   };
@@ -179,6 +189,39 @@ export const UsuariosViewTab: React.FC = () => {
             </div>
           );
         })}
+      </div>
+
+      {/* Security Architecture Whitelist Banner */}
+      <div className="bg-gradient-to-r from-[#010102] to-[#141D24] rounded-2xl p-5 border border-[#2a2a2e] text-white shadow-md flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex items-start gap-3.5">
+          <div className="w-10 h-10 rounded-xl bg-emerald-950/80 border border-emerald-500/40 flex items-center justify-center shrink-0">
+            <span className="material-symbols-outlined text-emerald-400 text-[22px]">verified_user</span>
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h4 className="text-sm font-bold text-white">Whitelist Corporativa & Segurança Híbrida</h4>
+              <span className="text-[10px] font-extrabold uppercase tracking-wider bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-500/30">
+                Ativa
+              </span>
+            </div>
+            <p className="text-xs text-gray-300 mt-1 leading-relaxed max-w-3xl">
+              <strong>1. Autenticação Online (Google Workspace / Gmail):</strong> O e-mail cadastrado na tabela abaixo atua como <span className="text-emerald-300 font-semibold">Whitelist oficial</span>. Somente colaboradores com e-mail ativo nesta lista têm permissão de acessar via Google Auth e sincronizar dados na nuvem.
+              <br className="hidden sm:block" />
+              <strong>2. Autenticação Offline (Pista / Balança):</strong> Cada operador possui sua senha local individual com proteção de <em>Rate Limiting</em> (bloqueio temporário após 5 tentativas incorretas).
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0 md:self-center">
+          <Button
+            variant="primary"
+            size="sm"
+            icon="person_add"
+            onClick={handleOpenAddModal}
+          >
+            Autorizar Novo E-mail
+          </Button>
+        </div>
       </div>
 
       {/* Main Users Table Box */}
@@ -383,13 +426,50 @@ export const UsuariosViewTab: React.FC = () => {
                       </td>
 
                       <td className="py-3.5 px-4 min-w-0">
-                        <div className="space-y-0.5 min-w-0">
+                        <div className="space-y-1 min-w-0">
                           <span className="text-gray-900 font-medium block truncate">
                             {u.email}
                           </span>
-                          <span className="text-[11px] text-gray-500 block truncate">
-                            {u.phone || 'Sem telefone'}
-                          </span>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span
+                              className={`inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded border ${
+                                u.status === 'ativo'
+                                  ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
+                                  : 'text-gray-500 bg-gray-100 border-gray-200 line-through'
+                              }`}
+                              title={
+                                u.status === 'ativo'
+                                  ? 'E-mail autorizado para Login Google (Whitelist Ativa)'
+                                  : 'Acesso Google Bloqueado (Usuário Inativo)'
+                              }
+                            >
+                              <span
+                                className={`w-1.5 h-1.5 rounded-full ${
+                                  u.status === 'ativo' ? 'bg-emerald-500' : 'bg-gray-400'
+                                }`}
+                              />
+                              Google Auth
+                            </span>
+
+                            {u.offlinePassword ? (
+                              <span
+                                className="inline-flex items-center gap-0.5 text-[9px] font-bold text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200"
+                                title="Senha offline configurada para balança/pista"
+                              >
+                                <span className="material-symbols-outlined text-[11px] text-amber-700">
+                                  key
+                                </span>
+                                Offline OK
+                              </span>
+                            ) : (
+                              <span
+                                className="inline-flex items-center gap-0.5 text-[9px] text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded border border-gray-200"
+                                title="Sem senha offline definida"
+                              >
+                                Sem Senha Off
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </td>
 
@@ -601,7 +681,9 @@ export const UsuariosViewTab: React.FC = () => {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-bold text-gray-800 mb-1">E-mail de Login *</label>
+                  <label className="block font-bold text-gray-800 mb-1">
+                    E-mail Corporativo (Whitelist Google) *
+                  </label>
                   <input
                     type="email"
                     value={email}
@@ -610,6 +692,9 @@ export const UsuariosViewTab: React.FC = () => {
                     required
                     className="w-full px-3 py-2 border border-[#C7C6CA] rounded-lg focus:border-[#010102] focus:ring-1 focus:ring-[#010102] outline-none text-xs"
                   />
+                  <p className="text-[10px] text-gray-500 mt-0.5">
+                    Utilizado para validar o login online via Google Auth.
+                  </p>
                 </div>
 
                 <div>
@@ -622,6 +707,40 @@ export const UsuariosViewTab: React.FC = () => {
                     className="w-full px-3 py-2 border border-[#C7C6CA] rounded-lg focus:border-[#010102] focus:ring-1 focus:ring-[#010102] outline-none text-xs"
                   />
                 </div>
+              </div>
+
+              {/* Offline Password Field */}
+              <div className="p-3 bg-amber-50/70 border border-amber-200/80 rounded-xl space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="block font-bold text-amber-950">
+                    Senha de Acesso Offline (Pista / Balança)
+                  </label>
+                  <span className="text-[10px] font-semibold text-amber-800 bg-amber-100/80 px-2 py-0.5 rounded">
+                    Rate Limit Ativo
+                  </span>
+                </div>
+                <div className="relative flex items-center">
+                  <input
+                    type={showModalPassword ? 'text' : 'password'}
+                    value={offlinePassword}
+                    onChange={(e) => setOfflinePassword(e.target.value)}
+                    placeholder="Defina a senha para login sem internet (mín. 6 caracteres)"
+                    className="w-full px-3 py-2 pr-9 bg-white border border-amber-300 rounded-lg focus:border-amber-600 focus:ring-1 focus:ring-amber-600 outline-none text-xs text-gray-900"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowModalPassword(!showModalPassword)}
+                    className="absolute right-2.5 text-gray-400 hover:text-gray-700 cursor-pointer"
+                    title={showModalPassword ? 'Ocultar senha' : 'Ver senha'}
+                  >
+                    <span className="material-symbols-outlined text-[18px]">
+                      {showModalPassword ? 'visibility_off' : 'visibility'}
+                    </span>
+                  </button>
+                </div>
+                <p className="text-[10px] text-amber-900/80 leading-relaxed">
+                  Permite que este colaborador acerte balanças e lance despesas mesmo sem conexão com a internet. O sistema bloqueia tentativas repetidas de força bruta por 60 segundos após 5 erros.
+                </p>
               </div>
 
               {/* Role Selection */}

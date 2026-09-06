@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { syncManager } from '../services/syncManager';
 import { errorDiagnosticsService } from '../services/errorDiagnosticsService';
+import { securityRateLimitService } from '../services/securityRateLimitService';
 import { logoutFirebaseAuth, getSavedFirebaseConfig, fetchCollectionFromFirestore, subscribeToFirestoreCollection } from '../services/firebaseConfig';
 import {
   exportSystemJsonBackup,
@@ -58,7 +59,7 @@ interface AppContextType {
   permissions: RolePermissions;
   systemUsers: SystemUser[];
   switchUser: (userId: string) => void;
-  login: (email: string, pass: string, roleOverride?: UserRole) => boolean;
+  login: (email: string, pass: string) => { success: boolean; message: string; isLocked?: boolean; remainingSeconds?: number };
   loginWithGoogleUser: (googleUser: { displayName?: string | null; email?: string | null; photoURL?: string | null; uid?: string }) => boolean;
   logout: () => void;
   currentView: ViewMode;
@@ -927,41 +928,91 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const login = (email: string, pass: string, roleOverride?: UserRole) => {
-    if (!email && !pass && !roleOverride) return false;
+  const login = (email: string, pass: string): { success: boolean; message: string; isLocked?: boolean; remainingSeconds?: number } => {
+    const cleanEmail = (email || '').trim().toLowerCase();
+    const cleanPass = (pass || '').trim();
 
-    let matchedUser = systemUsers.find(u => u.email.toLowerCase() === email.toLowerCase());
-    if (!matchedUser && roleOverride) {
-      matchedUser = systemUsers.find(u => u.role === roleOverride);
-    }
-    if (!matchedUser && systemUsers.length > 0) {
-      matchedUser = systemUsers[0];
-    }
-
-    if (matchedUser) {
-      if (matchedUser.status === 'inativo') {
-        showToast('Esta conta de usuário foi inativada. Contate o Administrador.', 'error');
-        return false;
-      }
-      const updatedProfile: UserProfile = {
-        id: matchedUser.id,
-        name: matchedUser.name,
-        role: matchedUser.roleTitle,
-        userRole: matchedUser.role,
-        email: matchedUser.email,
-        avatarUrl: matchedUser.avatarUrl,
-        status: 'Active'
+    // 1. Check Rate Limit / Lockout
+    const rateLimit = securityRateLimitService.checkRateLimit(cleanEmail || 'global');
+    if (rateLimit.isLocked) {
+      const msg = `Muitas tentativas incorretas. Acesso bloqueado temporariamente por segurança. Aguarde ${rateLimit.remainingSeconds}s.`;
+      showToast(msg, 'error');
+      return {
+        success: false,
+        message: msg,
+        isLocked: true,
+        remainingSeconds: rateLimit.remainingSeconds
       };
-      setUser(updatedProfile);
-      setIsAuthenticated(true);
-      showToast(`Bem-vindo(a), ${matchedUser.name}!`, 'success');
-      syncManager.addLog(`Login efetuado por ${matchedUser.name} (${matchedUser.roleTitle})`, 'info');
-      return true;
     }
 
+    if (!cleanEmail || !cleanPass) {
+      const msg = 'Por favor, informe o e-mail e a senha de acesso.';
+      showToast(msg, 'info');
+      return { success: false, message: msg };
+    }
+
+    // 2. Find user in registered systemUsers
+    const matchedUser = systemUsers.find(u => u.email.toLowerCase() === cleanEmail);
+
+    if (!matchedUser) {
+      const result = securityRateLimitService.recordFailedAttempt(cleanEmail || 'global');
+      syncManager.addLog(`Tentativa de login com e-mail não cadastrado: ${cleanEmail}`, 'warning');
+      
+      const msg = result.isLocked
+        ? 'Limite de 5 tentativas excedido. Acesso bloqueado temporariamente por 60 segundos.'
+        : `Credenciais inválidas. Restam ${result.remainingAttempts} tentativa(s) antes do bloqueio temporário.`;
+      showToast(msg, 'error');
+      return {
+        success: false,
+        message: msg,
+        isLocked: result.isLocked,
+        remainingSeconds: result.remainingSeconds
+      };
+    }
+
+    if (matchedUser.status === 'inativo') {
+      const msg = 'Esta conta de usuário foi inativada pelo Administrador da empresa.';
+      showToast(msg, 'error');
+      return { success: false, message: msg };
+    }
+
+    // 3. Verify Offline Password
+    const expectedPassword = matchedUser.offlinePassword || (matchedUser.role === 'admin' ? 'admin123' : 'asphalt123');
+    if (cleanPass !== expectedPassword) {
+      const result = securityRateLimitService.recordFailedAttempt(cleanEmail);
+      syncManager.addLog(`Tentativa de login com senha incorreta para: ${cleanEmail}`, 'warning');
+
+      const msg = result.isLocked
+        ? 'Limite de 5 tentativas excedido. Acesso bloqueado temporariamente por 60 segundos.'
+        : `Senha incorreta para ${matchedUser.name}. Restam ${result.remainingAttempts} tentativa(s) antes do bloqueio.`;
+      showToast(msg, 'error');
+      return {
+        success: false,
+        message: msg,
+        isLocked: result.isLocked,
+        remainingSeconds: result.remainingSeconds
+      };
+    }
+
+    // 4. Success! Reset rate limit counters
+    securityRateLimitService.resetRateLimit(cleanEmail);
+    securityRateLimitService.resetRateLimit('global');
+
+    const updatedProfile: UserProfile = {
+      id: matchedUser.id,
+      name: matchedUser.name,
+      role: matchedUser.roleTitle,
+      userRole: matchedUser.role,
+      email: matchedUser.email,
+      avatarUrl: matchedUser.avatarUrl,
+      status: 'Active'
+    };
+    setUser(updatedProfile);
     setIsAuthenticated(true);
-    showToast('Bem-vindo ao Asphalt Pro!', 'success');
-    return true;
+    showToast(`Bem-vindo(a), ${matchedUser.name}! [Perfil: ${matchedUser.roleTitle}]`, 'success');
+    syncManager.addLog(`Login local/offline realizado com sucesso por ${matchedUser.name} (${matchedUser.roleTitle})`, 'info');
+
+    return { success: true, message: 'Login realizado com sucesso.' };
   };
 
   const loginWithGoogleUser = (googleUser: {
@@ -987,6 +1038,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         showToast('Esta conta de usuário foi inativada. Contate o Administrador.', 'error');
         return false;
       }
+      
+      // Reset any local lockout
+      securityRateLimitService.resetRateLimit(userEmail);
+      securityRateLimitService.resetRateLimit('global');
+
       const updatedProfile: UserProfile = {
         id: matchedUser.id,
         name: matchedUser.name,
@@ -1020,11 +1076,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         avatarUrl: userAvatar,
         status: 'ativo',
         createdAt: new Date().toISOString(),
-        lastLogin: new Date().toISOString()
+        lastLogin: new Date().toISOString(),
+        offlinePassword: 'admin123'
       };
 
       setSystemUsers((prev) => [newSystemUser, ...prev]);
       syncManager.enqueue('user', 'create', newSystemUser.id, newSystemUser);
+
+      securityRateLimitService.resetRateLimit(userEmail);
+      securityRateLimitService.resetRateLimit('global');
 
       const profile: UserProfile = {
         id: newSystemUser.id,

@@ -75,7 +75,8 @@ export const INITIAL_SYSTEM_USERS: SystemUser[] = [
     status: 'ativo',
     phone: '(11) 99999-0000',
     createdAt: '2024-01-01T08:00:00.000Z',
-    lastLogin: 'Agora'
+    lastLogin: 'Agora',
+    offlinePassword: 'admin123'
   },
   {
     id: 'user-admin-principal',
@@ -88,7 +89,8 @@ export const INITIAL_SYSTEM_USERS: SystemUser[] = [
     status: 'ativo',
     phone: '(11) 99999-0001',
     createdAt: '2024-01-01T08:00:00.000Z',
-    lastLogin: 'Agora'
+    lastLogin: 'Agora',
+    offlinePassword: 'admin123'
   },
   {
     id: 'user-marcelo-admin',
@@ -101,7 +103,8 @@ export const INITIAL_SYSTEM_USERS: SystemUser[] = [
     status: 'ativo',
     phone: '(11) 99999-0002',
     createdAt: '2024-01-01T08:00:00.000Z',
-    lastLogin: 'Hoje'
+    lastLogin: 'Hoje',
+    offlinePassword: 'admin123'
   },
   {
     id: 'user-beatriz-fin',
@@ -114,7 +117,8 @@ export const INITIAL_SYSTEM_USERS: SystemUser[] = [
     status: 'ativo',
     phone: '(11) 99999-0003',
     createdAt: '2024-01-01T08:00:00.000Z',
-    lastLogin: 'Ontem'
+    lastLogin: 'Ontem',
+    offlinePassword: 'fin123'
   },
   {
     id: 'user-lucas-com',
@@ -127,7 +131,8 @@ export const INITIAL_SYSTEM_USERS: SystemUser[] = [
     status: 'ativo',
     phone: '(11) 99999-0004',
     createdAt: '2024-01-01T08:00:00.000Z',
-    lastLogin: 'Há 2 dias'
+    lastLogin: 'Há 2 dias',
+    offlinePassword: 'com123'
   },
   {
     id: 'user-valdir-op',
@@ -140,7 +145,8 @@ export const INITIAL_SYSTEM_USERS: SystemUser[] = [
     status: 'ativo',
     phone: '(11) 99999-0005',
     createdAt: '2024-01-01T08:00:00.000Z',
-    lastLogin: 'Há 4 horas'
+    lastLogin: 'Há 4 horas',
+    offlinePassword: 'op123'
   }
 ];
 
