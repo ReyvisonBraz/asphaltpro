@@ -171,6 +171,32 @@ export const LoginView: React.FC = () => {
     }
   };
 
+  const handleQuickRoleLogin = (userEmail: string, userPassword: string) => {
+    if (isLocked) {
+      showToast(`Acesso temporariamente bloqueado. Aguarde ${lockoutSeconds}s.`, 'error');
+      return;
+    }
+    setEmail(userEmail);
+    setPassword(userPassword);
+    setFailedMessage(null);
+    setIsLoadingOffline(true);
+    setTimeout(() => {
+      const res = login(userEmail, userPassword);
+      setIsLoadingOffline(false);
+      if (res.success) {
+        showToast(`Acesso concedido: ${userEmail}`, 'success');
+      } else {
+        if (res.isLocked) {
+          setIsLocked(true);
+          setLockoutSeconds(res.remainingSeconds || 60);
+          setFailedMessage(res.message);
+        } else {
+          setFailedMessage(res.message);
+        }
+      }
+    }, 200);
+  };
+
   const handleForgotSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setForgotSent(true);
@@ -181,7 +207,7 @@ export const LoginView: React.FC = () => {
       {/* Background industrial pattern */}
       <div className="absolute inset-0 bg-[radial-gradient(#C7C6CA_1px,transparent_1px)] [background-size:24px_24px] opacity-30 pointer-events-none" />
 
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-[#DEE2E6] overflow-hidden z-10 animate-in fade-in zoom-in-95 duration-200">
+      <div className="w-full max-w-lg bg-white rounded-2xl shadow-xl border border-[#DEE2E6] overflow-hidden z-10 animate-in fade-in zoom-in-95 duration-200">
         {/* Top Brand Banner */}
         <div className="bg-[#010102] p-6 sm:p-7 text-center flex flex-col items-center border-b border-[#1c1c1e] relative">
           {/* Real-time Status Badge */}
@@ -384,6 +410,66 @@ export const LoginView: React.FC = () => {
               {isLocked ? `Bloqueado (${lockoutSeconds}s)` : 'Entrar no Modo Offline'}
             </Button>
           </form>
+
+          {/* SECTION 3: FAST ROLE / QUICK LOGIN (1-CLIQUE) */}
+          <div className="pt-3 border-t border-gray-100">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">
+                Acesso Rápido por Perfil (1-Clique)
+              </span>
+              <span className="text-[10px] text-gray-400 font-medium">Preenchimento Automático</span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => handleQuickRoleLogin('admin@empresa.com.br', 'admin123')}
+                className="p-2.5 rounded-xl border border-amber-200 bg-amber-50/60 hover:bg-amber-100/80 text-left transition-all flex items-center gap-2 text-xs font-bold text-amber-950 cursor-pointer active:scale-[0.98]"
+              >
+                <span className="material-symbols-outlined text-[18px] text-amber-700">shield_person</span>
+                <div className="min-w-0">
+                  <span className="block truncate">Diretor (Admin)</span>
+                  <span className="text-[10px] font-normal text-amber-800/80 block">admin@empresa...</span>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleQuickRoleLogin('beatriz@asphaltpro.com.br', 'fin123')}
+                className="p-2.5 rounded-xl border border-blue-200 bg-blue-50/60 hover:bg-blue-100/80 text-left transition-all flex items-center gap-2 text-xs font-bold text-blue-950 cursor-pointer active:scale-[0.98]"
+              >
+                <span className="material-symbols-outlined text-[18px] text-blue-700">account_balance</span>
+                <div className="min-w-0">
+                  <span className="block truncate">Financeiro</span>
+                  <span className="text-[10px] font-normal text-blue-800/80 block">DRE & Contas</span>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleQuickRoleLogin('lucas@asphaltpro.com.br', 'com123')}
+                className="p-2.5 rounded-xl border border-emerald-200 bg-emerald-50/60 hover:bg-emerald-100/80 text-left transition-all flex items-center gap-2 text-xs font-bold text-emerald-950 cursor-pointer active:scale-[0.98]"
+              >
+                <span className="material-symbols-outlined text-[18px] text-emerald-700">request_quote</span>
+                <div className="min-w-0">
+                  <span className="block truncate">Comercial</span>
+                  <span className="text-[10px] font-normal text-emerald-800/80 block">Orçamentos A4</span>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleQuickRoleLogin('valdir@asphaltpro.com.br', 'op123')}
+                className="p-2.5 rounded-xl border border-orange-200 bg-orange-50/60 hover:bg-orange-100/80 text-left transition-all flex items-center gap-2 text-xs font-bold text-orange-950 cursor-pointer active:scale-[0.98]"
+              >
+                <span className="material-symbols-outlined text-[18px] text-orange-700">local_shipping</span>
+                <div className="min-w-0">
+                  <span className="block truncate">Operador Balança</span>
+                  <span className="text-[10px] font-normal text-orange-800/80 block">Pista & Despesas</span>
+                </div>
+              </button>
+            </div>
+          </div>
 
           {/* Security Information Footer */}
           <div className="pt-2 flex items-center justify-center gap-1.5 text-[10px] text-gray-400 text-center">
