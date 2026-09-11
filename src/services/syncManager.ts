@@ -396,6 +396,7 @@ class SyncManager {
             employee: 'employees',
             partner: 'partners',
             category: 'categories',
+            bankAccount: 'bankAccounts',
             settings: 'settings',
             user: 'users'
           };

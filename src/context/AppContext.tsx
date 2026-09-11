@@ -1917,17 +1917,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       id: `cat-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     };
     setCategories(prev => [newCategory, ...prev]);
+    syncManager.enqueue('category', 'create', newCategory.id, newCategory);
     showToast(`Categoria "${newCategory.nome}" criada com sucesso!`, 'success');
   };
 
   const updateCategory = (id: string, categoryData: Partial<Category>) => {
     setCategories(prev => prev.map(c => c.id === id ? { ...c, ...categoryData } : c));
+    const existing = categories.find(c => c.id === id);
+    if (existing) {
+      syncManager.enqueue('category', 'update', id, { ...existing, ...categoryData });
+    }
     showToast('Categoria atualizada com sucesso!', 'success');
   };
 
   const deleteCategory = (id: string) => {
     const cat = categories.find(c => c.id === id);
     setCategories(prev => prev.filter(c => c.id !== id));
+    syncManager.enqueue('category', 'delete', id, { id });
     showToast(`Categoria "${cat?.nome || ''}" removida com sucesso!`, 'info');
   };
 
@@ -1938,17 +1944,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       id: `bank-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     };
     setBankAccounts(prev => [...prev, newAccount]);
+    syncManager.enqueue('bankAccount', 'create', newAccount.id, newAccount);
     showToast(`Conta "${newAccount.nome}" cadastrada com sucesso!`, 'success');
   };
 
   const updateBankAccount = (id: string, accountData: Partial<BankAccount>) => {
     setBankAccounts(prev => prev.map(b => b.id === id ? { ...b, ...accountData } : b));
+    const existing = bankAccounts.find(b => b.id === id);
+    if (existing) {
+      syncManager.enqueue('bankAccount', 'update', id, { ...existing, ...accountData });
+    }
     showToast('Conta bancária atualizada com sucesso!', 'success');
   };
 
   const deleteBankAccount = (id: string) => {
     const acc = bankAccounts.find(b => b.id === id);
     setBankAccounts(prev => prev.filter(b => b.id !== id));
+    syncManager.enqueue('bankAccount', 'delete', id, { id });
     showToast(`Conta "${acc?.nome || ''}" removida com sucesso!`, 'info');
   };
 
@@ -2133,6 +2145,86 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return Array.from(map.values());
   };
 
+  /**
+   * Reconciles Category records with Cloud Firestore.
+   * Ensures that any custom categories created locally (such as "FRETE") that are not yet
+   * present in Firestore are preserved AND automatically pushed to the cloud.
+   */
+  const reconcileCategoriesWithCloud = (
+    cloudCategories: Category[],
+    prevCategories: Category[]
+  ): Category[] => {
+    const queue = syncManager.getQueue();
+    const pendingDeletes = new Set(
+      queue.filter((q) => q.entityType === 'category' && q.action === 'delete').map((q) => q.entityId)
+    );
+
+    const map = new Map<string, Category>();
+
+    // 1. Authoritative Cloud categories currently existing in Firestore
+    cloudCategories.forEach((cat) => {
+      if (!pendingDeletes.has(cat.id)) {
+        map.set(cat.id, cat);
+      }
+    });
+
+    // 2. Preserve any local categories (like "FRETE" or custom categories) not yet in cloud,
+    // and immediately push them to Firestore so other devices receive them in real-time!
+    prevCategories.forEach((cat) => {
+      if (!map.has(cat.id) && !pendingDeletes.has(cat.id)) {
+        map.set(cat.id, cat);
+        syncManager.enqueue('category', 'create', cat.id, cat);
+      }
+    });
+
+    // 3. Fallback to default INITIAL_CATEGORIES if completely empty
+    if (map.size === 0) {
+      INITIAL_CATEGORIES.forEach((cat) => {
+        map.set(cat.id, cat);
+        syncManager.enqueue('category', 'create', cat.id, cat);
+      });
+    }
+
+    return Array.from(map.values());
+  };
+
+  /**
+   * Reconciles BankAccount records with Cloud Firestore.
+   */
+  const reconcileBankAccountsWithCloud = (
+    cloudBanks: BankAccount[],
+    prevBanks: BankAccount[]
+  ): BankAccount[] => {
+    const queue = syncManager.getQueue();
+    const pendingDeletes = new Set(
+      queue.filter((q) => q.entityType === 'bankAccount' && q.action === 'delete').map((q) => q.entityId)
+    );
+
+    const map = new Map<string, BankAccount>();
+
+    cloudBanks.forEach((b) => {
+      if (!pendingDeletes.has(b.id)) {
+        map.set(b.id, b);
+      }
+    });
+
+    prevBanks.forEach((b) => {
+      if (!map.has(b.id) && !pendingDeletes.has(b.id)) {
+        map.set(b.id, b);
+        syncManager.enqueue('bankAccount', 'create', b.id, b);
+      }
+    });
+
+    if (map.size === 0) {
+      INITIAL_BANK_ACCOUNTS.forEach((b) => {
+        map.set(b.id, b);
+        syncManager.enqueue('bankAccount', 'create', b.id, b);
+      });
+    }
+
+    return Array.from(map.values());
+  };
+
   const [isPullingFromCloud, setIsPullingFromCloud] = useState(false);
 
   const pullFromCloud = async (silent: boolean = false): Promise<{ success: boolean; count: number }> => {
@@ -2152,14 +2244,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         cloudAccounts,
         cloudEmployees,
         cloudPartners,
-        cloudUsers
+        cloudUsers,
+        cloudCategories,
+        cloudBankAccounts
       ] = await Promise.all([
         fetchCollectionFromFirestore('transactions'),
         fetchCollectionFromFirestore('quotes'),
         fetchCollectionFromFirestore('accounts'),
         fetchCollectionFromFirestore('employees'),
         fetchCollectionFromFirestore('partners'),
-        fetchCollectionFromFirestore('users')
+        fetchCollectionFromFirestore('users'),
+        fetchCollectionFromFirestore('categories'),
+        fetchCollectionFromFirestore('bankAccounts')
       ]);
 
       let totalPulled = 0;
@@ -2219,6 +2315,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         });
         totalPulled += cloudUsers.length;
       }
+
+      // 7. Reconcile categories (Real-time shared categories across all users):
+      setCategories((prev) => {
+        const reconciled = reconcileCategoriesWithCloud(cloudCategories, prev);
+        localStorage.setItem('asphalt_categories', JSON.stringify(reconciled));
+        return reconciled;
+      });
+      totalPulled += cloudCategories.length;
+
+      // 8. Reconcile bank accounts:
+      setBankAccounts((prev) => {
+        const reconciled = reconcileBankAccountsWithCloud(cloudBankAccounts, prev);
+        localStorage.setItem('asphalt_bank_accounts', JSON.stringify(reconciled));
+        return reconciled;
+      });
+      totalPulled += cloudBankAccounts.length;
 
       syncManager.addLog(`Nuvem sincronizada: ${totalPulled} registros recebidos do Firebase`, 'success', totalPulled);
       if (!silent) {
@@ -2316,6 +2428,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     });
 
+    // Real-time categories listener (Synchronizes "FRETE" and custom categories instantly across all users)
+    const unsubCategories = subscribeToFirestoreCollection('categories', (cloudCategories) => {
+      if (!isMounted) return;
+      setCategories((prev) => {
+        const reconciled = reconcileCategoriesWithCloud(cloudCategories, prev);
+        localStorage.setItem('asphalt_categories', JSON.stringify(reconciled));
+        return reconciled;
+      });
+    });
+
+    // Real-time bank accounts listener
+    const unsubBankAccounts = subscribeToFirestoreCollection('bankAccounts', (cloudBanks) => {
+      if (!isMounted) return;
+      setBankAccounts((prev) => {
+        const reconciled = reconcileBankAccountsWithCloud(cloudBanks, prev);
+        localStorage.setItem('asphalt_bank_accounts', JSON.stringify(reconciled));
+        return reconciled;
+      });
+    });
+
     return () => {
       isMounted = false;
       if (unsubTx) unsubTx();
@@ -2324,6 +2456,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (unsubEmployees) unsubEmployees();
       if (unsubPartners) unsubPartners();
       if (unsubUsers) unsubUsers();
+      if (unsubCategories) unsubCategories();
+      if (unsubBankAccounts) unsubBankAccounts();
     };
   }, []);
 

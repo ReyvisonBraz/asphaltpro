@@ -3,9 +3,10 @@ import { useApp } from '../../context/AppContext';
 import { Button, Input, Modal } from '../common';
 import { loginWithGooglePopup, getSavedFirebaseConfig } from '../../services/firebaseConfig';
 import { securityRateLimitService } from '../../services/securityRateLimitService';
+import { syncManager } from '../../services/syncManager';
 
 export const LoginView: React.FC = () => {
-  const { login, loginWithGoogleUser, showToast } = useApp();
+  const { login, loginWithGoogleUser, showToast, pullFromCloud } = useApp();
   
   // Safe credential state (no exposed defaults)
   const [email, setEmail] = useState(() => {
@@ -32,8 +33,15 @@ export const LoginView: React.FC = () => {
   const [isLoadingGoogle, setIsLoadingGoogle] = useState(false);
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
 
-  const firebaseConfig = getSavedFirebaseConfig();
-  const isFirebaseActive = !!(firebaseConfig && firebaseConfig.projectId && firebaseConfig.apiKey && firebaseConfig.isActive);
+  // Quick Firebase connection modal state
+  const [isFirebaseSetupOpen, setIsFirebaseSetupOpen] = useState(false);
+  const [fbProjectId, setFbProjectId] = useState('');
+  const [fbApiKey, setFbApiKey] = useState('');
+  const [fbAuthDomain, setFbAuthDomain] = useState('');
+  const [isConnectingFb, setIsConnectingFb] = useState(false);
+
+  const [firebaseConfigState, setFirebaseConfigState] = useState(() => getSavedFirebaseConfig());
+  const isFirebaseActive = !!(firebaseConfigState && firebaseConfigState.projectId && firebaseConfigState.apiKey && firebaseConfigState.isActive);
 
   // Check initial rate limit status
   useEffect(() => {
@@ -202,6 +210,45 @@ export const LoginView: React.FC = () => {
     setForgotSent(true);
   };
 
+  const handleConnectFirebase = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!fbProjectId.trim() || !fbApiKey.trim()) {
+      showToast('Informe pelo menos o Project ID e a Web API Key do Firebase.', 'info');
+      return;
+    }
+
+    setIsConnectingFb(true);
+    try {
+      const newConfig = {
+        projectId: fbProjectId.trim(),
+        apiKey: fbApiKey.trim(),
+        authDomain: fbAuthDomain.trim() || `${fbProjectId.trim()}.firebaseapp.com`,
+        storageBucket: `${fbProjectId.trim()}.appspot.com`,
+        appId: '',
+        isActive: true
+      };
+      syncManager.saveFirebaseConfig(newConfig);
+      setFirebaseConfigState(newConfig);
+
+      const testReport = await syncManager.checkSyncIntegrity();
+      if (testReport.isFirebaseConnected) {
+        showToast('Firebase conectado com sucesso! Sincronizando dados...', 'success');
+        await pullFromCloud(false);
+        setIsFirebaseSetupOpen(false);
+      } else {
+        showToast(
+          `Salvo, mas o teste retornou: ${testReport.remoteMessage || testReport.statusText}. Verifique as regras do Firestore ou chaves.`,
+          'info'
+        );
+        setIsFirebaseSetupOpen(false);
+      }
+    } catch (err: any) {
+      showToast(`Erro ao conectar Firebase: ${err?.message || 'Falha inesperada'}`, 'error');
+    } finally {
+      setIsConnectingFb(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#F8F9FA] flex flex-col justify-center items-center p-4 relative select-none">
       {/* Background industrial pattern */}
@@ -298,6 +345,40 @@ export const LoginView: React.FC = () => {
             <p className="text-[10px] text-gray-400 text-center">
               Restrito a e-mails cadastrados previamente pela administração.
             </p>
+
+            {!isFirebaseActive && (
+              <div className="p-3 bg-amber-50/90 border border-amber-200 rounded-xl space-y-2 text-xs text-amber-950 animate-in fade-in">
+                <div className="flex items-start gap-2">
+                  <span className="material-symbols-outlined text-amber-700 text-[18px] shrink-0 mt-0.5">
+                    cloud_off
+                  </span>
+                  <div className="flex-1">
+                    <span className="font-bold block text-amber-900">
+                      Nuvem da Usina Desconectada neste Dispositivo
+                    </span>
+                    <span className="text-amber-800 text-[11px] leading-relaxed block mt-0.5">
+                      Para sincronizar dados da usina, logo e login Google neste celular ou notebook, conecte o Firebase corporativo:
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 pt-0.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFbProjectId(firebaseConfigState?.projectId || '');
+                      setFbApiKey(firebaseConfigState?.apiKey || '');
+                      setFbAuthDomain(firebaseConfigState?.authDomain || '');
+                      setIsFirebaseSetupOpen(true);
+                    }}
+                    className="px-3 py-1.5 bg-[#835400] hover:bg-[#6c4500] text-white font-bold text-[11px] rounded-lg shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <span className="material-symbols-outlined text-[15px]">settings_remote</span>
+                    Conectar Firebase Agora
+                  </button>
+                  <span className="text-[10px] text-amber-700">ou use o Acesso Offline abaixo</span>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* DIVIDER */}
@@ -548,6 +629,88 @@ export const LoginView: React.FC = () => {
               />
             </form>
           )}
+        </Modal>
+      )}
+
+      {/* Quick Firebase Cloud Setup Modal */}
+      {isFirebaseSetupOpen && (
+        <Modal
+          isOpen={true}
+          onClose={() => setIsFirebaseSetupOpen(false)}
+          title="Conectar Firebase da Usina"
+          subtitle="Sincronização em tempo real e Login Google neste dispositivo"
+          size="md"
+          footer={
+            <>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setIsFirebaseSetupOpen(false)}
+                disabled={isConnectingFb}
+              >
+                Fechar
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                icon="cloud_done"
+                isLoading={isConnectingFb}
+                onClick={handleConnectFirebase}
+              >
+                Salvar & Conectar Agora
+              </Button>
+            </>
+          }
+        >
+          <form onSubmit={handleConnectFirebase} className="space-y-3.5 text-xs">
+            <div className="p-3 bg-sky-50 border border-sky-200 rounded-xl text-sky-950 space-y-1.5 leading-relaxed">
+              <div className="flex items-center gap-2 font-bold text-sky-900">
+                <span className="material-symbols-outlined text-sky-700 text-[18px]">public</span>
+                Dica Definitiva para Vercel:
+              </div>
+              <p className="text-[11px]">
+                Para conectar todos os celulares e computadores automaticamente sem precisar digitar chaves em cada um, cadastre no painel da Vercel (<em>Settings &gt; Environment Variables</em>):
+                <br />
+                <code className="font-mono bg-sky-100/80 px-1 py-0.5 rounded font-bold">VITE_FIREBASE_PROJECT_ID</code> e{' '}
+                <code className="font-mono bg-sky-100/80 px-1 py-0.5 rounded font-bold">VITE_FIREBASE_API_KEY</code>.
+              </p>
+            </div>
+
+            <div className="space-y-3 pt-1">
+              <Input
+                label="Project ID do Firebase (Obrigatório)"
+                type="text"
+                required
+                value={fbProjectId}
+                onChange={(e) => setFbProjectId(e.target.value)}
+                placeholder="ex: usina-asfalto-erp-prod"
+                leftIcon="badge"
+              />
+
+              <Input
+                label="Web API Key (apiKey) (Obrigatório)"
+                type="text"
+                required
+                value={fbApiKey}
+                onChange={(e) => setFbApiKey(e.target.value)}
+                placeholder="ex: AIzaSy..."
+                leftIcon="key"
+              />
+
+              <Input
+                label="Auth Domain (Opcional)"
+                type="text"
+                value={fbAuthDomain}
+                onChange={(e) => setFbAuthDomain(e.target.value)}
+                placeholder={fbProjectId ? `${fbProjectId.trim()}.firebaseapp.com` : 'ex: usina-asfalto.firebaseapp.com'}
+                leftIcon="domain"
+              />
+            </div>
+
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-950 text-[11px] leading-relaxed">
+              <strong>Importante para o Login Google na Vercel:</strong> No console do Firebase (<em>Authentication &gt; Settings &gt; Authorized domains</em>), lembre-se de adicionar o domínio do seu app na Vercel (ex: <code>seu-app.vercel.app</code>) para autorizar o login popup.
+            </div>
+          </form>
         </Modal>
       )}
     </div>

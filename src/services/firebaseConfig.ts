@@ -34,6 +34,35 @@ export const getSavedFirebaseConfig = (): FirebaseProjectConfig | null => {
     // ignore in environments without import.meta.env
   }
 
+  // 1.5 Check if URL has quick-connect parameters (e.g. opened from WhatsApp/email on mobile)
+  if (typeof window !== 'undefined') {
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const qpProjectId = urlParams.get('fb_project') || urlParams.get('projectId');
+      const qpApiKey = urlParams.get('fb_key') || urlParams.get('apiKey');
+      if (qpProjectId && qpApiKey) {
+        const qpAuthDomain = urlParams.get('fb_authDomain') || `${qpProjectId.trim()}.firebaseapp.com`;
+        const qpStorageBucket = urlParams.get('fb_storageBucket') || `${qpProjectId.trim()}.appspot.com`;
+        const qpAppId = urlParams.get('fb_appId') || '';
+        const quickConfig: FirebaseProjectConfig = {
+          projectId: qpProjectId.trim(),
+          apiKey: qpApiKey.trim(),
+          authDomain: qpAuthDomain.trim(),
+          storageBucket: qpStorageBucket.trim(),
+          appId: qpAppId.trim(),
+          isActive: true
+        };
+        localStorage.setItem(FIREBASE_CONFIG_STORAGE_KEY, JSON.stringify(quickConfig));
+        // Clean URL parameter without reloading page
+        const newUrl = window.location.pathname;
+        window.history.replaceState({}, document.title, newUrl);
+        return quickConfig;
+      }
+    } catch (e) {
+      console.error('Erro ao ler parâmetros de conexão rápida do Firebase:', e);
+    }
+  }
+
   // 2. Fallback to localStorage configured by user in the UI
   if (typeof window === 'undefined') return null;
   try {

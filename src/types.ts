@@ -291,7 +291,7 @@ export interface SyncOptimizationStats {
 export interface SyncQueueItem {
   id: string; // unique operation id
   entityId: string; // target record id
-  entityType: 'transaction' | 'account' | 'quote' | 'employee' | 'category' | 'settings' | 'user' | 'partner';
+  entityType: 'transaction' | 'account' | 'quote' | 'employee' | 'category' | 'bankAccount' | 'settings' | 'user' | 'partner';
   action: 'create' | 'update' | 'delete';
   payload: any;
   timestamp: string; // ISO string

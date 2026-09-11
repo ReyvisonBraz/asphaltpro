@@ -134,6 +134,17 @@ export const SyncDetailsModal: React.FC<SyncDetailsModalProps> = ({ isOpen, onCl
     showToast('Configuração do Firebase removida. Operando em Modo Local Seguro.', 'info');
   };
 
+  const handleCopyQuickLink = () => {
+    if (!projectId.trim() || !apiKey.trim()) {
+      showToast('Informe e valide o Project ID e API Key primeiro para gerar o link.', 'info');
+      return;
+    }
+    const currentOrigin = window.location.origin + window.location.pathname;
+    const quickUrl = `${currentOrigin}?fb_project=${encodeURIComponent(projectId.trim())}&fb_key=${encodeURIComponent(apiKey.trim())}&fb_authDomain=${encodeURIComponent(authDomain.trim() || `${projectId.trim()}.firebaseapp.com`)}`;
+    navigator.clipboard.writeText(quickUrl);
+    showToast('Link de conexão rápida copiado! Envie por WhatsApp/e-mail para o celular ou notebook.', 'success');
+  };
+
   return (
     <Modal
       isOpen={isOpen}
@@ -558,7 +569,7 @@ service cloud.firestore {
               </pre>
             </div>
 
-            <div className="flex items-center justify-between pt-2 border-t border-gray-200">
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 pt-2 border-t border-gray-200">
               <Button
                 variant="danger"
                 size="sm"
@@ -569,15 +580,29 @@ service cloud.firestore {
                 Remover Credenciais
               </Button>
 
-              <Button
-                variant="primary"
-                size="sm"
-                icon="cloud_done"
-                isLoading={isTestingConfig}
-                onClick={handleSaveFirebaseConfig}
-              >
-                Salvar & Validar Conexão
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  icon="share"
+                  onClick={handleCopyQuickLink}
+                  disabled={!projectId || !apiKey}
+                  title="Gera um link com as chaves para abrir no celular e conectar em 1 clique"
+                >
+                  Link p/ Celular
+                </Button>
+
+                <Button
+                  variant="primary"
+                  size="sm"
+                  icon="cloud_done"
+                  isLoading={isTestingConfig}
+                  onClick={handleSaveFirebaseConfig}
+                >
+                  Salvar & Validar Conexão
+                </Button>
+              </div>
             </div>
           </div>
         )}
