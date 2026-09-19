@@ -1,5 +1,17 @@
 import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
-import { getFirestore, doc, setDoc, deleteDoc, collection, getDocs, onSnapshot, Firestore, serverTimestamp } from 'firebase/firestore';
+import { 
+  getFirestore, 
+  enableIndexedDbPersistence, 
+  enableMultiTabIndexedDbPersistence, 
+  doc, 
+  setDoc, 
+  deleteDoc, 
+  collection, 
+  getDocs, 
+  onSnapshot, 
+  Firestore, 
+  serverTimestamp 
+} from 'firebase/firestore';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut as firebaseSignOut, Auth, User as FirebaseUser } from 'firebase/auth';
 import { FirebaseProjectConfig } from '../types';
 
@@ -78,6 +90,62 @@ export const getSavedFirebaseConfig = (): FirebaseProjectConfig | null => {
   return null;
 };
 
+let persistencePromise: Promise<void> | null = null;
+let persistenceStatus: 'idle' | 'enabling' | 'enabled' | 'failed' = 'idle';
+
+/**
+ * Ativa a persistência offline via IndexedDB no Firestore.
+ * Garante que operações de CRUD (deleções, edições, criações) sejam enfileiradas e persistidas
+ * localmente no navegador, sincronizando automaticamente mesmo em conexões instáveis ou offline.
+ */
+export const enableFirestoreIndexedDbPersistence = async (db: Firestore): Promise<void> => {
+  if (persistenceStatus === 'enabled') return;
+  if (persistencePromise) return persistencePromise;
+  if (typeof window === 'undefined' || typeof indexedDB === 'undefined') return;
+
+  persistenceStatus = 'enabling';
+
+  persistencePromise = (async () => {
+    // 1. Tenta persistência multi-aba primeiro para suportar múltiplas abas concorrentes
+    try {
+      if (typeof enableMultiTabIndexedDbPersistence === 'function') {
+        await enableMultiTabIndexedDbPersistence(db);
+        persistenceStatus = 'enabled';
+        console.log('[Firestore] Persistência Multi-Tab IndexedDB ativada com sucesso.');
+        return;
+      }
+    } catch (multiErr: any) {
+      if (multiErr.code !== 'failed-precondition') {
+        console.warn('[Firestore] Persistência multi-aba indisponível, tentando persistência padrão:', multiErr?.code || multiErr?.message);
+      }
+    }
+
+    // 2. Fallback para enableIndexedDbPersistence padrão conforme solicitado
+    try {
+      await enableIndexedDbPersistence(db);
+      persistenceStatus = 'enabled';
+      console.log('[Firestore] enableIndexedDbPersistence ativado com sucesso.');
+    } catch (err: any) {
+      if (err.code === 'failed-precondition') {
+        console.warn('[Firestore] Múltiplas abas abertas simultaneamente; persistência IndexedDB vinculada à aba principal.');
+        persistenceStatus = 'failed';
+      } else if (err.code === 'unimplemented') {
+        console.warn('[Firestore] O navegador atual não suporta IndexedDB persistence.');
+        persistenceStatus = 'failed';
+      } else {
+        console.warn('[Firestore] Aviso ao configurar enableIndexedDbPersistence:', err);
+        persistenceStatus = 'failed';
+      }
+    }
+  })();
+
+  return persistencePromise;
+};
+
+export const isFirestorePersistenceEnabled = (): boolean => {
+  return persistenceStatus === 'enabled';
+};
+
 export const saveFirebaseConfig = (config: FirebaseProjectConfig): boolean => {
   if (typeof window === 'undefined') return false;
   try {
@@ -85,6 +153,8 @@ export const saveFirebaseConfig = (config: FirebaseProjectConfig): boolean => {
     // Reset cached instances to force re-initialization with new credentials
     firebaseAppInstance = null;
     firestoreInstance = null;
+    persistencePromise = null;
+    persistenceStatus = 'idle';
     return true;
   } catch (e) {
     console.error('Erro ao salvar configuração do Firebase:', e);
@@ -99,6 +169,8 @@ export const removeFirebaseConfig = () => {
     firebaseAppInstance = null;
     firestoreInstance = null;
     authInstance = null;
+    persistencePromise = null;
+    persistenceStatus = 'idle';
   } catch (e) {
     console.error('Erro ao remover configuração do Firebase:', e);
   }
@@ -148,6 +220,12 @@ export const getFirestoreDb = (): Firestore | null => {
   try {
     if (!firestoreInstance) {
       firestoreInstance = getFirestore(app);
+      // Ativação imediata de enableIndexedDbPersistence antes de quaisquer leituras ou escritas
+      if (typeof window !== 'undefined' && typeof indexedDB !== 'undefined') {
+        enableFirestoreIndexedDbPersistence(firestoreInstance).catch((err) => {
+          console.warn('[Firestore] Inicialização offline com IndexedDB em andamento:', err);
+        });
+      }
     }
     return firestoreInstance;
   } catch (e) {

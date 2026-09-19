@@ -2,7 +2,8 @@ import React, { createContext, useContext, useState, useEffect, useRef } from 'r
 import { syncManager } from '../services/syncManager';
 import { errorDiagnosticsService } from '../services/errorDiagnosticsService';
 import { securityRateLimitService } from '../services/securityRateLimitService';
-import { logoutFirebaseAuth, getSavedFirebaseConfig, fetchCollectionFromFirestore, subscribeToFirestoreCollection } from '../services/firebaseConfig';
+import { logoutFirebaseAuth, getSavedFirebaseConfig, fetchCollectionFromFirestore, subscribeToFirestoreCollection, syncDocToFirestore } from '../services/firebaseConfig';
+import { broadcastEntityMutation, subscribeCrossTabSync } from '../services/crossTabSync';
 import { parseAnyDateToTimestamp } from '../utils/formatters';
 import {
   exportSystemJsonBackup,
@@ -1339,7 +1340,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const deleteTransaction = (id: string) => {
     try {
       setTransactions(prev => prev.filter(t => t.id !== id));
+      syncDocToFirestore('transactions', id, null, 'delete').catch(() => {});
       syncManager.enqueue('transaction', 'delete', id, { id });
+      broadcastEntityMutation('transaction', 'delete', [id]);
       showToast('Lançamento removido.', 'info');
     } catch (err) {
       reportSystemError({
@@ -1487,7 +1490,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const deleteAccount = (id: string) => {
     setAccounts(prev => prev.filter(a => a.id !== id));
+    syncDocToFirestore('accounts', id, null, 'delete').catch(() => {});
     syncManager.enqueue('account', 'delete', id, { id });
+    broadcastEntityMutation('account', 'delete', [id]);
     showToast('Conta excluída com sucesso.', 'info');
   };
 
@@ -1578,7 +1583,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const deleteEmployee = (id: string) => {
     setEmployees(prev => prev.filter(e => e.id !== id));
+    syncDocToFirestore('employees', id, null, 'delete').catch(() => {});
     syncManager.enqueue('employee', 'delete', id, { id });
+    broadcastEntityMutation('employee', 'delete', [id]);
     showToast('Colaborador removido da base.', 'info');
   };
 
@@ -1658,7 +1665,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const deleteQuote = (id: string) => {
     setQuotes(prev => prev.filter(q => q.id !== id));
+    syncDocToFirestore('quotes', id, null, 'delete').catch(() => {});
     syncManager.enqueue('quote', 'delete', id, { id });
+    broadcastEntityMutation('quote', 'delete', [id]);
     showToast('Orçamento removido.', 'info');
   };
 
@@ -1848,7 +1857,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const deletePartner = (id: string) => {
     setPartners(prev => prev.filter(p => p.id !== id));
+    syncDocToFirestore('partners', id, null, 'delete').catch(() => {});
     syncManager.enqueue('partner', 'delete', id, { id });
+    broadcastEntityMutation('partner', 'delete', [id]);
     showToast('Parceiro removido do cadastro.', 'info');
   };
 
@@ -1944,12 +1955,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Categories logic
   const addCategory = (categoryData: Omit<Category, 'id'>) => {
+    const normalizedName = categoryData.nome.trim().toLowerCase();
+    const existing = categories.find(
+      c => c.nome.trim().toLowerCase() === normalizedName && c.tipo === categoryData.tipo
+    );
+    if (existing) {
+      showToast(`A categoria "${categoryData.nome}" já existe no plano de contas.`, 'info');
+      return;
+    }
+
     const newCategory: Category = {
       ...categoryData,
       id: `cat-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     };
     setCategories(prev => [newCategory, ...prev]);
+    syncDocToFirestore('categories', newCategory.id, newCategory, 'create').catch((err) => {
+      console.warn(`[Sync] Gravação direta de categoria adiada para a fila:`, err);
+    });
     syncManager.enqueue('category', 'create', newCategory.id, newCategory);
+    broadcastEntityMutation('category', 'create', [newCategory.id], newCategory);
     showToast(`Categoria "${newCategory.nome}" criada com sucesso!`, 'success');
   };
 
@@ -1957,16 +1981,39 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCategories(prev => prev.map(c => c.id === id ? { ...c, ...categoryData } : c));
     const existing = categories.find(c => c.id === id);
     if (existing) {
-      syncManager.enqueue('category', 'update', id, { ...existing, ...categoryData });
+      const updated = { ...existing, ...categoryData };
+      syncDocToFirestore('categories', id, updated, 'update').catch((err) => {
+        console.warn(`[Sync] Atualização direta de categoria adiada para a fila:`, err);
+      });
+      syncManager.enqueue('category', 'update', id, updated);
+      broadcastEntityMutation('category', 'update', [id], updated);
     }
     showToast('Categoria atualizada com sucesso!', 'success');
   };
 
   const deleteCategory = (id: string) => {
-    const cat = categories.find(c => c.id === id);
-    setCategories(prev => prev.filter(c => c.id !== id));
-    syncManager.enqueue('category', 'delete', id, { id });
-    showToast(`Categoria "${cat?.nome || ''}" removida com sucesso!`, 'info');
+    const targetCat = categories.find(c => c.id === id);
+    // Find all categories matching this ID or identical normalized name + tipo to purge duplicate records
+    const matchingCategories = categories.filter(c => 
+      c.id === id || (targetCat && c.nome.trim().toLowerCase() === targetCat.nome.trim().toLowerCase() && c.tipo === targetCat.tipo)
+    );
+    const matchingIds = matchingCategories.length > 0 ? matchingCategories.map(c => c.id) : [id];
+
+    // 1. Immediately remove from local state
+    setCategories(prev => prev.filter(c => !matchingIds.includes(c.id)));
+
+    // 2. Dispatch immediate cloud deletion for all matching IDs in parallel & register tombstones
+    matchingIds.forEach(mId => {
+      syncDocToFirestore('categories', mId, null, 'delete').catch(err => {
+        console.warn(`[Sync] Exclusão direta na nuvem de ${mId} adiada para fila:`, err);
+      });
+      syncManager.enqueue('category', 'delete', mId, { id: mId });
+    });
+
+    // 3. Broadcast to any other open browser tabs
+    broadcastEntityMutation('category', 'delete', matchingIds);
+
+    showToast(`Categoria "${targetCat?.nome || ''}" removida com sucesso!`, 'info');
   };
 
   // Bank Accounts logic
@@ -1976,7 +2023,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       id: `bank-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     };
     setBankAccounts(prev => [...prev, newAccount]);
+    syncDocToFirestore('bankAccounts', newAccount.id, newAccount, 'create').catch(() => {});
     syncManager.enqueue('bankAccount', 'create', newAccount.id, newAccount);
+    broadcastEntityMutation('bankAccount', 'create', [newAccount.id], newAccount);
     showToast(`Conta "${newAccount.nome}" cadastrada com sucesso!`, 'success');
   };
 
@@ -1984,7 +2033,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setBankAccounts(prev => prev.map(b => b.id === id ? { ...b, ...accountData } : b));
     const existing = bankAccounts.find(b => b.id === id);
     if (existing) {
-      syncManager.enqueue('bankAccount', 'update', id, { ...existing, ...accountData });
+      const updated = { ...existing, ...accountData };
+      syncDocToFirestore('bankAccounts', id, updated, 'update').catch(() => {});
+      syncManager.enqueue('bankAccount', 'update', id, updated);
+      broadcastEntityMutation('bankAccount', 'update', [id], updated);
     }
     showToast('Conta bancária atualizada com sucesso!', 'success');
   };
@@ -1992,7 +2044,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const deleteBankAccount = (id: string) => {
     const acc = bankAccounts.find(b => b.id === id);
     setBankAccounts(prev => prev.filter(b => b.id !== id));
+    syncDocToFirestore('bankAccounts', id, null, 'delete').catch(() => {});
     syncManager.enqueue('bankAccount', 'delete', id, { id });
+    broadcastEntityMutation('bankAccount', 'delete', [id]);
     showToast(`Conta "${acc?.nome || ''}" removida com sucesso!`, 'info');
   };
 
@@ -2196,11 +2250,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const deletedTombstones = syncManager.getDeletedEntityIds();
 
     const map = new Map<string, Category>();
+    const seenKeys = new Set<string>();
 
     // 1. Authoritative Cloud categories currently existing in Firestore
+    // Deduplicate by normalized name and type to merge duplicate entries cleanly across devices
     cloudCategories.forEach((cat) => {
       if (!pendingDeletes.has(cat.id) && !deletedTombstones.has(cat.id)) {
-        map.set(cat.id, cat);
+        const key = `${cat.nome.trim().toLowerCase()}_${cat.tipo}`;
+        if (!seenKeys.has(key)) {
+          seenKeys.add(key);
+          map.set(cat.id, cat);
+        } else {
+          // Orphan duplicate detected on cloud: cleanup duplicate in background
+          syncDocToFirestore('categories', cat.id, null, 'delete').catch(() => {});
+        }
       }
     });
 
@@ -2210,12 +2273,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
     pendingCreates.forEach((q) => {
       if (!deletedTombstones.has(q.entityId) && !pendingDeletes.has(q.entityId)) {
-        if (q.payload && q.payload.id) {
-          map.set(q.payload.id, q.payload as Category);
-        } else {
-          const local = prevCategories.find((c) => c.id === q.entityId);
-          if (local) {
-            map.set(local.id, local);
+        const cat = (q.payload && q.payload.id ? q.payload : prevCategories.find((c) => c.id === q.entityId)) as Category | undefined;
+        if (cat) {
+          const key = `${cat.nome.trim().toLowerCase()}_${cat.tipo}`;
+          if (!seenKeys.has(key)) {
+            seenKeys.add(key);
+            map.set(cat.id, cat);
           }
         }
       }
@@ -2508,8 +2571,47 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
     });
 
+    // Cross-tab broadcast listener (for instantaneous 0ms propagation between tabs/windows on same device)
+    const unsubCrossTab = subscribeCrossTabSync((msg) => {
+      if (!isMounted) return;
+      if (msg.entityType === 'category') {
+        if (msg.action === 'delete') {
+          setCategories((prev) => prev.filter((c) => !msg.ids.includes(c.id)));
+        } else if (msg.action === 'create' && msg.payload) {
+          setCategories((prev) => prev.some((c) => c.id === msg.payload.id) ? prev : [msg.payload, ...prev]);
+        } else if (msg.action === 'update' && msg.payload) {
+          setCategories((prev) => prev.map((c) => c.id === msg.payload.id ? { ...c, ...msg.payload } : c));
+        }
+      } else if (msg.entityType === 'bankAccount') {
+        if (msg.action === 'delete') {
+          setBankAccounts((prev) => prev.filter((b) => !msg.ids.includes(b.id)));
+        }
+      } else if (msg.entityType === 'transaction') {
+        if (msg.action === 'delete') {
+          setTransactions((prev) => prev.filter((t) => !msg.ids.includes(t.id)));
+        }
+      } else if (msg.entityType === 'account') {
+        if (msg.action === 'delete') {
+          setAccounts((prev) => prev.filter((a) => !msg.ids.includes(a.id)));
+        }
+      } else if (msg.entityType === 'employee') {
+        if (msg.action === 'delete') {
+          setEmployees((prev) => prev.filter((e) => !msg.ids.includes(e.id)));
+        }
+      } else if (msg.entityType === 'partner') {
+        if (msg.action === 'delete') {
+          setPartners((prev) => prev.filter((p) => !msg.ids.includes(p.id)));
+        }
+      } else if (msg.entityType === 'quote') {
+        if (msg.action === 'delete') {
+          setQuotes((prev) => prev.filter((q) => !msg.ids.includes(q.id)));
+        }
+      }
+    });
+
     return () => {
       isMounted = false;
+      unsubCrossTab();
       if (unsubTx) unsubTx();
       if (unsubQuotes) unsubQuotes();
       if (unsubAccounts) unsubAccounts();

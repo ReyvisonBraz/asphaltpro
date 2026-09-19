@@ -375,7 +375,32 @@ class SyncManager {
       this.queue = [...this.queue, deleteItem];
       this.saveToStorage();
 
-      // Dispatch deletion faster to ensure cloud consistency across all connected devices
+      // 4. Immediately trigger direct Firestore deletion for 0ms cross-device propagation
+      const collectionMap: Record<string, string> = {
+        transaction: 'transactions',
+        account: 'accounts',
+        quote: 'quotes',
+        employee: 'employees',
+        partner: 'partners',
+        category: 'categories',
+        bankAccount: 'bankAccounts',
+        settings: 'settings',
+        user: 'users'
+      };
+      const collectionName = collectionMap[entityType] || entityType;
+
+      // Dispara imediatamente para o Firestore: com enableIndexedDbPersistence, o Firestore
+      // persiste a exclusão no IndexedDB local e enfileira na nuvem mesmo offline/instável
+      syncDocToFirestore(collectionName, entityId, null, 'delete')
+        .then(() => {
+          this.queue = this.queue.filter(q => q.id !== deleteItem.id);
+          this.saveToStorage();
+        })
+        .catch((err) => {
+          console.warn(`[SyncManager] Exclusão mantida na fila local de contingência:`, err);
+        });
+
+      // Dispatch queue processing fast to ensure cloud consistency across all connected devices
       if (this.debounceTimer) {
         clearTimeout(this.debounceTimer);
       }
@@ -383,10 +408,10 @@ class SyncManager {
         this.debounceTimer = setTimeout(() => {
           this.processQueue();
           this.debounceTimer = null;
-        }, 300);
+        }, 150);
       } else {
         this.addLog(
-          `Exclusão gravada em fila offline (${entityType}: ${entityId})`,
+          `Exclusão persistida no IndexedDB e fila offline (${entityType}: ${entityId})`,
           'warning'
         );
       }
@@ -434,6 +459,31 @@ class SyncManager {
 
     this.saveToStorage();
 
+    // Com enableIndexedDbPersistence, persiste criações e edições imediatamente no IndexedDB
+    const collectionMap: Record<string, string> = {
+      transaction: 'transactions',
+      account: 'accounts',
+      quote: 'quotes',
+      employee: 'employees',
+      partner: 'partners',
+      category: 'categories',
+      bankAccount: 'bankAccounts',
+      settings: 'settings',
+      user: 'users'
+    };
+    const collectionName = collectionMap[entityType] || entityType;
+
+    syncDocToFirestore(collectionName, entityId, payload, action)
+      .then(() => {
+        this.queue = this.queue.filter(
+          q => !(q.entityId === entityId && q.entityType === entityType && q.action === action)
+        );
+        this.saveToStorage();
+      })
+      .catch((err) => {
+        console.warn(`[SyncManager] Operação mantida na fila de contingência para reprocessamento:`, err);
+      });
+
     // Debounce processQueue so consecutive rapid edits get merged and dispatched in 1 batch
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);
@@ -446,7 +496,7 @@ class SyncManager {
       }, 1200);
     } else {
       this.addLog(
-        `Operação gravada em fila offline (${action} ${entityType}: ${entityId})`,
+        `Operação persistida no IndexedDB e fila offline (${action} ${entityType}: ${entityId})`,
         'warning'
       );
     }
@@ -480,7 +530,10 @@ class SyncManager {
 
     try {
       if (db && config?.isActive) {
-        // Real Firestore sync - dispatch items
+        // Real Firestore sync - dispatch items with per-item resilience
+        const remaining: SyncQueueItem[] = [];
+        let successCount = 0;
+
         for (const item of itemsToProcess) {
           const collectionMap: Record<string, string> = {
             transaction: 'transactions',
@@ -494,16 +547,35 @@ class SyncManager {
             user: 'users'
           };
           const collectionName = collectionMap[item.entityType] || item.entityType;
-          await syncDocToFirestore(collectionName, item.entityId, item.payload, item.action);
+
+          try {
+            await syncDocToFirestore(collectionName, item.entityId, item.payload, item.action);
+            successCount++;
+          } catch (itemErr: any) {
+            console.error(`Falha ao sincronizar item ${item.entityType}/${item.entityId}:`, itemErr);
+            const retries = (item.retryCount || 0) + 1;
+            if (retries < 4) {
+              remaining.push({ ...item, retryCount: retries });
+            } else {
+              this.addLog(`Item descartado após 3 falhas (${item.entityType}: ${item.entityId}): ${itemErr?.message || 'Erro'}`, 'error');
+            }
+          }
         }
-        this.addLog(`Nuvem Firebase sincronizada com sucesso (${countToSync} itens gravados)`, 'success', countToSync);
+
+        // Keep any newly enqueued items while processing + retries
+        const currentQueueIds = new Set(itemsToProcess.map(i => i.id));
+        const newlyAdded = this.queue.filter(i => !currentQueueIds.has(i.id));
+        this.queue = [...remaining, ...newlyAdded];
+
+        if (successCount > 0) {
+          this.addLog(`Nuvem Firebase sincronizada com sucesso (${successCount} itens gravados)`, 'success', successCount);
+        }
       } else {
         // Local storage / Simulated cloud persistence
         await new Promise((resolve) => setTimeout(resolve, 600));
         this.addLog(`Sincronização local concluída (${countToSync} itens consolidados na fila)`, 'success', countToSync);
+        this.queue = [];
       }
-
-      this.queue = [];
       this.lastSyncTime = new Date().toLocaleTimeString('pt-BR', {
         hour: '2-digit',
         minute: '2-digit',
