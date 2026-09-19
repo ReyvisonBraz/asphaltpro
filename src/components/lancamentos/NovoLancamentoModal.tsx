@@ -1,7 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { TransactionType, PaymentMethod } from '../../types';
-import { getTodayDateInputValue, formatDateToBR } from '../../utils/formatters';
+import {
+  getTodayDateInputValue,
+  formatDateToBR,
+  formatCurrencyValue,
+  maskCurrencyInput,
+  parseAndFormatPastedCurrency
+} from '../../utils/formatters';
 import { Modal, Button, Input, Select, PartnerAutocomplete } from '../common';
 import { transactionFormSchema, validateForm } from '../../schemas/validationSchemas';
 
@@ -18,13 +24,15 @@ export const NovoLancamentoModal: React.FC = () => {
     employees,
     bankAccounts,
     showToast,
+    user,
   } = useApp();
 
   const [tipo, setTipo] = useState<TransactionType>('entrada');
   const [descricao, setDescricao] = useState('');
-  const [valor, setValor] = useState('1500,00');
+  const [valor, setValor] = useState('1.500,00');
   const [categoria, setCategoria] = useState('Receita de Serviços');
-  const [responsavel, setResponsavel] = useState('João Silva (Engenheiro)');
+  const [responsavel, setResponsavel] = useState(user?.name || 'Administrador');
+  const [showEditResponsavel, setShowEditResponsavel] = useState(false);
   const [contaFinanceira, setContaFinanceira] = useState('Caixa Principal Usina');
   const [data, setData] = useState(getTodayDateInputValue());
   const [clienteFornecedor, setClienteFornecedor] = useState('Construtora Alpha Ltda.');
@@ -51,12 +59,14 @@ export const NovoLancamentoModal: React.FC = () => {
       setFormErrors({});
       setIsSubmitting(false);
 
+      setShowEditResponsavel(false);
+
       if (editingTransaction) {
         setTipo(editingTransaction.tipo);
         setDescricao(editingTransaction.descricao || '');
-        setValor(Number(editingTransaction.valor || 0).toFixed(2).replace('.', ','));
+        setValor(formatCurrencyValue(Number(editingTransaction.valor || 0)));
         setCategoria(editingTransaction.categoria || 'Receita de Serviços');
-        setResponsavel(editingTransaction.responsavel || 'João Silva (Engenheiro)');
+        setResponsavel(editingTransaction.responsavel || user?.name || 'Administrador');
         setContaFinanceira(editingTransaction.contaFinanceira || 'Caixa Principal Usina');
         setData(brToIso(editingTransaction.data));
         setClienteFornecedor(editingTransaction.clienteFornecedor || '');
@@ -69,18 +79,19 @@ export const NovoLancamentoModal: React.FC = () => {
         setObservacao('');
         setUploadedFileName(null);
         setData(getTodayDateInputValue());
+        setResponsavel(user?.name || 'Administrador');
         if (novoLancamentoInitialTab === 'entrada') {
           setCategoria('Receita de Serviços');
           setClienteFornecedor('Construtora Alpha Ltda.');
-          setValor('1500,00');
+          setValor('1.500,00');
         } else {
           setCategoria('Matéria Prima (CAP / Brita)');
           setClienteFornecedor('Petrobras Distribuidora S.A.');
-          setValor('1500,00');
+          setValor('1.500,00');
         }
       }
     }
-  }, [isNovoLancamentoOpen, novoLancamentoInitialTab, editingTransaction]);
+  }, [isNovoLancamentoOpen, novoLancamentoInitialTab, editingTransaction, user?.name]);
 
   const handleClose = () => {
     setIsNovoLancamentoOpen(false);
@@ -88,14 +99,44 @@ export const NovoLancamentoModal: React.FC = () => {
   };
 
   const handleNumericInput = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value.replace(/[^\d,]/g, '');
-    setValor(val);
+    const raw = e.target.value;
+    const formatted = maskCurrencyInput(raw);
+    setValor(formatted || '0,00');
     if (formErrors.valor) {
       setFormErrors((prev) => {
         const next = { ...prev };
         delete next.valor;
         return next;
       });
+    }
+  };
+
+  const handleNumericKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    // If user presses comma (,) or dot (.), and they typed integer (e.g. 1000 or 1500 which is currently 10,00 or 15,00),
+    // instantly multiply by 100 to shift to 1.000,00 or 1.500,00
+    if (e.key === ',' || e.key === '.') {
+      e.preventDefault();
+      const cleanDigits = valor.replace(/\D/g, '');
+      const num = parseInt(cleanDigits || '0', 10);
+      if (num > 0 && num < 10000000) {
+        setValor(maskCurrencyInput((num * 100).toString()));
+      }
+    }
+  };
+
+  const handleNumericPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    e.preventDefault();
+    const pasted = e.clipboardData.getData('text');
+    const formatted = parseAndFormatPastedCurrency(pasted);
+    if (formatted) {
+      setValor(formatted);
+      if (formErrors.valor) {
+        setFormErrors((prev) => {
+          const next = { ...prev };
+          delete next.valor;
+          return next;
+        });
+      }
     }
   };
 
@@ -282,39 +323,94 @@ export const NovoLancamentoModal: React.FC = () => {
 
         {/* Big Amount Field */}
         <div
-          className={`p-4 rounded-2xl bg-gradient-to-r from-[#FDFBF7] to-white border flex flex-col sm:flex-row items-center justify-between gap-4 ${
+          className={`p-4 rounded-2xl bg-gradient-to-r from-[#FDFBF7] to-white border flex flex-col gap-3 ${
             formErrors.valor ? 'border-red-500 ring-2 ring-red-100' : 'border-[#DEE2E6]'
           }`}
         >
-          <div>
-            <label className="text-xs font-bold uppercase tracking-wider text-gray-500 block">
-              Valor do Lançamento *
-            </label>
-            <span className="text-xs text-gray-400">Informe o valor total em Reais (BRL)</span>
-            {formErrors.valor && (
-              <span className="text-xs text-red-600 font-semibold block mt-1">
-                {formErrors.valor}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <label className="text-xs font-bold uppercase tracking-wider text-gray-500 block">
+                Valor do Lançamento *
+              </label>
+              <span className="text-xs text-gray-400">
+                O ponto e a vírgula andam automaticamente enquanto você digita
               </span>
-            )}
+              {formErrors.valor && (
+                <span className="text-xs text-red-600 font-semibold block mt-1">
+                  {formErrors.valor}
+                </span>
+              )}
+            </div>
+
+            <div className="relative w-full sm:w-72">
+              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-bold text-gray-400">
+                R$
+              </span>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={valor}
+                onChange={handleNumericInput}
+                onKeyDown={handleNumericKeyDown}
+                onPaste={handleNumericPaste}
+                onFocus={(e) => e.target.select()}
+                placeholder="0,00"
+                required
+                className={`w-full pl-10 pr-4 py-2.5 bg-white border rounded-xl text-2xl font-black text-[#010102] focus:ring-2 focus:outline-none tabular-nums text-right ${
+                  formErrors.valor
+                    ? 'border-red-500 focus:border-red-500 focus:ring-red-100'
+                    : 'border-[#DEE2E6] focus:border-[#835400] focus:ring-[#835400]/20'
+                }`}
+              />
+            </div>
           </div>
 
-          <div className="relative w-full sm:w-64">
-            <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-bold text-gray-400">
-              R$
-            </span>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={valor}
-              onChange={handleNumericInput}
-              placeholder="0,00"
-              required
-              className={`w-full pl-10 pr-4 py-2.5 bg-white border rounded-xl text-xl font-black text-[#010102] focus:ring-2 focus:outline-none tabular-nums text-right ${
-                formErrors.valor
-                  ? 'border-red-500 focus:border-red-500 focus:ring-red-100'
-                  : 'border-[#DEE2E6] focus:border-[#835400] focus:ring-[#835400]/20'
-              }`}
-            />
+          {/* Quick preset buttons for fast input */}
+          <div className="flex flex-wrap items-center justify-between gap-1.5 pt-2 border-t border-gray-100 text-xs">
+            <span className="text-[11px] font-semibold text-gray-400">Atalhos rápidos:</span>
+            <div className="flex flex-wrap items-center gap-1">
+              {[500, 1000, 1500, 2500, 5000, 10000].map((val) => (
+                <button
+                  key={val}
+                  type="button"
+                  onClick={() => {
+                    setValor(formatCurrencyValue(val));
+                    if (formErrors.valor) {
+                      setFormErrors((prev) => {
+                        const next = { ...prev };
+                        delete next.valor;
+                        return next;
+                      });
+                    }
+                  }}
+                  className="px-2 py-0.5 rounded-md text-[11px] font-semibold bg-white hover:bg-[#835400]/10 text-gray-700 hover:text-[#835400] border border-gray-200 transition-colors cursor-pointer"
+                >
+                  R$ {formatCurrencyValue(val)}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => {
+                  const cleanDigits = valor.replace(/\D/g, '');
+                  const num = parseInt(cleanDigits || '0', 10);
+                  if (num > 0 && num < 10000000) {
+                    setValor(maskCurrencyInput((num * 100).toString()));
+                  }
+                }}
+                className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 transition-colors cursor-pointer"
+                title="Multiplica por 100 (adiciona dois zeros para centavos)"
+              >
+                +00
+              </button>
+              <button
+                type="button"
+                onClick={() => setValor('0,00')}
+                className="px-2 py-0.5 rounded-md text-[11px] font-medium text-gray-400 hover:text-red-600 hover:bg-red-50 border border-transparent hover:border-red-200 transition-colors cursor-pointer"
+                title="Limpar valor"
+              >
+                Zerar
+              </button>
+            </div>
           </div>
         </div>
 
@@ -396,19 +492,54 @@ export const NovoLancamentoModal: React.FC = () => {
             helperText="Pesquise no histórico e cadastros ou digite um novo parceiro"
           />
 
-          <Select
-            label="Responsável / Autorizador"
-            value={responsavel}
-            onChange={(e) => setResponsavel(e.target.value)}
-            error={formErrors.responsavel}
-            leftIcon="person"
-          >
-            {employees.map((e) => (
-              <option key={e.id} value={e.nome}>
-                {e.nome} ({e.cargo})
-              </option>
-            ))}
-          </Select>
+          {/* Responsável pelo Lançamento (Automático do usuário logado) */}
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-[#010102] flex items-center gap-1">
+                <span className="material-symbols-outlined text-[15px] text-gray-400">person</span>
+                Responsável pelo Lançamento
+              </label>
+              <button
+                type="button"
+                onClick={() => setShowEditResponsavel(!showEditResponsavel)}
+                className="text-[11px] text-[#835400] hover:underline font-semibold cursor-pointer"
+              >
+                {showEditResponsavel ? 'Manter atual' : 'Alterar'}
+              </button>
+            </div>
+
+            {!showEditResponsavel ? (
+              <div className="flex items-center justify-between px-3 py-2 rounded-xl bg-gray-50 border border-gray-200 text-xs">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                  <span className="text-gray-500 font-medium">Registrado por:</span>
+                  <span className="font-bold text-gray-900">{responsavel || user?.name || 'Administrador'}</span>
+                </div>
+                <span className="text-[10px] text-gray-400 font-medium hidden sm:inline">Automático do login</span>
+              </div>
+            ) : (
+              <Select
+                value={responsavel}
+                onChange={(e) => setResponsavel(e.target.value)}
+                error={formErrors.responsavel}
+                leftIcon="person"
+                helperText="Selecione caso este lançamento esteja sendo feito em nome de outro colaborador"
+              >
+                {user?.name && (
+                  <option value={user.name}>
+                    {user.name} (Meu usuário atual)
+                  </option>
+                )}
+                {employees
+                  .filter((e) => e.nome !== user?.name)
+                  .map((e) => (
+                    <option key={e.id} value={e.nome}>
+                      {e.nome} ({e.cargo})
+                    </option>
+                  ))}
+              </Select>
+            )}
+          </div>
 
           <Select
             label="Forma de Pagamento"

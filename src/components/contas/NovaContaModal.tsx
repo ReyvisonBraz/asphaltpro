@@ -1,7 +1,13 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { AccountType, AccountStatus } from '../../types';
-import { formatDateToBR, getTodayDateInputValue } from '../../utils/formatters';
+import {
+  formatDateToBR,
+  getTodayDateInputValue,
+  formatCurrencyValue,
+  maskCurrencyInput,
+  parseAndFormatPastedCurrency
+} from '../../utils/formatters';
 import { Modal, Button, Input, Select, PartnerAutocomplete } from '../common';
 import { accountFormSchema, validateForm } from '../../schemas/validationSchemas';
 
@@ -212,11 +218,37 @@ export const NovaContaModal: React.FC = () => {
           <Input
             label="Valor Total (R$) *"
             placeholder="0,00"
-            inputMode="decimal"
+            inputMode="numeric"
             value={valor}
+            onFocus={(e) => e.target.select()}
+            onKeyDown={(e) => {
+              if (e.key === ',' || e.key === '.') {
+                e.preventDefault();
+                const cleanDigits = valor.replace(/\D/g, '');
+                const num = parseInt(cleanDigits || '0', 10);
+                if (num > 0 && num < 10000000) {
+                  setValor(maskCurrencyInput((num * 100).toString()));
+                }
+              }
+            }}
+            onPaste={(e) => {
+              e.preventDefault();
+              const pasted = e.clipboardData.getData('text');
+              const formatted = parseAndFormatPastedCurrency(pasted);
+              if (formatted) {
+                setValor(formatted);
+                if (formErrors.valor) {
+                  setFormErrors((prev) => {
+                    const n = { ...prev };
+                    delete n.valor;
+                    return n;
+                  });
+                }
+              }
+            }}
             onChange={(e) => {
-              const val = e.target.value.replace(/[^\d,]/g, '');
-              setValor(val);
+              const formatted = maskCurrencyInput(e.target.value);
+              setValor(formatted || '0,00');
               if (formErrors.valor) {
                 setFormErrors((prev) => {
                   const n = { ...prev };

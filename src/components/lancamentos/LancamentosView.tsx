@@ -1,8 +1,8 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
-import { formatCurrency } from '../../utils/formatters';
+import { formatCurrency, parseAnyDateToTimestamp } from '../../utils/formatters';
 import { exportTransactionsCsv } from '../../utils/exportUtils';
-import { Transaction } from '../../types';
+import { Transaction, Category } from '../../types';
 import {
   Button,
   StatCard,
@@ -53,44 +53,156 @@ export const LancamentosView: React.FC = () => {
   const [selectedTipo, setSelectedTipo] = useState<'todos' | 'entrada' | 'saida'>('todos');
   const [localSearch, setLocalSearch] = useState('');
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [showResponsavelCol, setShowResponsavelCol] = useState<boolean>(() => {
+    return localStorage.getItem('asphalt_show_responsavel_col') === 'true';
+  });
+  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
+
+  const toggleShowResponsavelCol = () => {
+    setShowResponsavelCol((prev) => {
+      const next = !prev;
+      localStorage.setItem('asphalt_show_responsavel_col', String(next));
+      return next;
+    });
+  };
+
   const [selectedTxForDetail, setSelectedTxForDetail] = useState<Transaction | null>(null);
   const [txToDelete, setTxToDelete] = useState<Transaction | null>(null);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+
+  // Quick Category Filter Chips Customization State
+  const [pinnedCategories, setPinnedCategories] = useState<string[]>(() => {
+    const saved = localStorage.getItem('asphalt_pinned_filter_categories');
+    if (saved !== null) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          return parsed;
+        }
+      } catch {}
+    }
+    return [
+      'Frete',
+      'Venda de Asfalto (CBUQ)',
+      'Insumos / Matéria Prima',
+      'Combustível / Diesel',
+      'Folha de Pagamento',
+    ];
+  });
+
+  const [isCustomizeChipsOpen, setIsCustomizeChipsOpen] = useState(false);
+  const [tempSelectedChips, setTempSelectedChips] = useState<string[]>([]);
+  const [customizeSearch, setCustomizeSearch] = useState('');
+
+  // Sync temp list when opening customization modal
+  useEffect(() => {
+    if (isCustomizeChipsOpen) {
+      setTempSelectedChips(pinnedCategories);
+      setCustomizeSearch('');
+    }
+  }, [isCustomizeChipsOpen, pinnedCategories]);
+
+  // Helper to get Category metadata (color, type, icon)
+  const getCategoryMeta = (catNome: string) => {
+    if (!catNome) return null;
+    return categories.find((c) => c.nome.trim().toLowerCase() === catNome.trim().toLowerCase()) || null;
+  };
+
+  // Visible category chips in the filter bar (strictly respects user pinned choices)
+  const visibleCategoryChips = useMemo(() => {
+    const categoryMap = new Map(categories.map((c) => [c.nome.trim().toLowerCase(), c]));
+    const namesSet = new Set<string>();
+    const list: Category[] = [];
+
+    // 1. Add strictly the categories pinned by the user
+    pinnedCategories.forEach((name) => {
+      const lower = name.trim().toLowerCase();
+      if (!namesSet.has(lower) && categoryMap.has(lower)) {
+        list.push(categoryMap.get(lower)!);
+        namesSet.add(lower);
+      }
+    });
+
+    // 2. If a category is currently active that isn't in the pinned list,
+    // show it so the user can easily see it's active and click to deselect
+    if (selectedCategoria !== 'Todas as Categorias') {
+      const lower = selectedCategoria.trim().toLowerCase();
+      if (!namesSet.has(lower)) {
+        const cat = categoryMap.get(lower) || {
+          id: `temp-${lower}`,
+          nome: selectedCategoria,
+          tipo: 'despesa' as const,
+          cor: '#835400',
+        };
+        list.unshift(cat);
+        namesSet.add(lower);
+      }
+    }
+
+    // Filter by selectedTipo if user selected "Entradas" or "Saídas"
+    if (selectedTipo === 'entrada') {
+      return list.filter((c) => c.tipo === 'receita');
+    }
+    if (selectedTipo === 'saida') {
+      return list.filter((c) => c.tipo === 'despesa');
+    }
+    return list;
+  }, [categories, pinnedCategories, selectedTipo, selectedCategoria]);
+
+  const handleToggleCategoryChip = (catName: string) => {
+    if (selectedCategoria.trim().toLowerCase() === catName.trim().toLowerCase()) {
+      setSelectedCategoria('Todas as Categorias');
+    } else {
+      setSelectedCategoria(catName);
+      const found = categories.find(
+        (c) => c.nome.trim().toLowerCase() === catName.trim().toLowerCase()
+      );
+      if (found) {
+        if (found.tipo === 'despesa' && selectedTipo === 'entrada') {
+          setSelectedTipo('saida');
+        } else if (found.tipo === 'receita' && selectedTipo === 'saida') {
+          setSelectedTipo('entrada');
+        }
+      }
+    }
+    setCurrentPage(1);
+  };
+
+  const handleSaveCustomizedChips = () => {
+    setPinnedCategories(tempSelectedChips);
+    localStorage.setItem('asphalt_pinned_filter_categories', JSON.stringify(tempSelectedChips));
+    setIsCustomizeChipsOpen(false);
+    showToast('Atalhos de categorias atualizados com sucesso!', 'success');
+  };
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
-  // Helper to parse date format (DD/MM/YYYY or YYYY-MM-DD) into timestamp
-  const parseDateToTimestamp = (dateStr: string) => {
-    if (!dateStr) return null;
-    if (dateStr.includes('/')) {
-      const parts = dateStr.split('/');
-      if (parts.length === 3) {
-        const d = parseInt(parts[0], 10);
-        const m = parseInt(parts[1], 10) - 1;
-        const y = parseInt(parts[2], 10);
-        return new Date(y, m, d).getTime();
-      }
-    } else if (dateStr.includes('-')) {
-      const parts = dateStr.split('-');
-      if (parts.length === 3) {
-        const y = parseInt(parts[0], 10);
-        const m = parseInt(parts[1], 10) - 1;
-        const d = parseInt(parts[2], 10);
-        return new Date(y, m, d).getTime();
-      }
-    }
-    const timestamp = Date.parse(dateStr);
-    return isNaN(timestamp) ? null : timestamp;
+  // Helper to parse date format (DD/MM/YYYY, DD-MM-YYYY, YYYY-MM-DD) into timestamp
+  const parseDateToTimestamp = (dateStr: string, isEndOfDay = false) => {
+    return parseAnyDateToTimestamp(dateStr, isEndOfDay);
   };
 
-  // Filtered transactions
-  const filteredTransactions = useMemo(() => {
-    const startTime = dataInicio ? parseDateToTimestamp(dataInicio) : null;
-    const endTime = dataFim ? parseDateToTimestamp(dataFim) : null;
+  const getTransactionCreatedTimestamp = (tx: Transaction) => {
+    if (tx.createdAt) {
+      const t = Date.parse(tx.createdAt);
+      if (!isNaN(t)) return t;
+    }
+    const match = tx.id?.match(/tx-(\d+)/);
+    if (match) {
+      const num = parseInt(match[1], 10);
+      if (!isNaN(num)) return num;
+    }
+    return 0;
+  };
 
-    return transactions.filter((tx) => {
+  // Filtered and sorted transactions (most recent first by default)
+  const filteredTransactions = useMemo(() => {
+    const startTime = dataInicio ? parseDateToTimestamp(dataInicio, false) : null;
+    const endTime = dataFim ? parseDateToTimestamp(dataFim, true) : null;
+
+    const filtered = transactions.filter((tx) => {
       const matchGlobal = globalSearch
         ? tx.descricao.toLowerCase().includes(globalSearch.toLowerCase()) ||
           tx.categoria.toLowerCase().includes(globalSearch.toLowerCase()) ||
@@ -105,7 +217,7 @@ export const LancamentosView: React.FC = () => {
 
       const matchCat =
         selectedCategoria === 'Todas as Categorias' ||
-        tx.categoria.toLowerCase() === selectedCategoria.toLowerCase();
+        (Boolean(tx.categoria) && tx.categoria.trim().toLowerCase() === selectedCategoria.trim().toLowerCase());
 
       const matchResp =
         selectedResponsavel === 'Todos os Responsáveis' ||
@@ -113,12 +225,27 @@ export const LancamentosView: React.FC = () => {
 
       const matchTipo = selectedTipo === 'todos' || tx.tipo === selectedTipo;
 
-      const txTime = parseDateToTimestamp(tx.data);
+      const txTime = parseDateToTimestamp(tx.data, false);
       const matchDate =
         (!startTime || (txTime !== null && txTime >= startTime)) &&
         (!endTime || (txTime !== null && txTime <= endTime));
 
       return matchGlobal && matchLocal && matchCat && matchResp && matchTipo && matchDate;
+    });
+
+    // Invert to show most recent transactions at the top by default (or user selected order)
+    return filtered.sort((a, b) => {
+      const timeA = parseDateToTimestamp(a.data, false) || 0;
+      const timeB = parseDateToTimestamp(b.data, false) || 0;
+
+      if (timeA !== timeB) {
+        return sortOrder === 'desc' ? timeB - timeA : timeA - timeB;
+      }
+
+      // Tie breaker for same day: most recently recorded comes first
+      const createA = getTransactionCreatedTimestamp(a);
+      const createB = getTransactionCreatedTimestamp(b);
+      return sortOrder === 'desc' ? createB - createA : createA - createB;
     });
   }, [
     transactions,
@@ -129,6 +256,7 @@ export const LancamentosView: React.FC = () => {
     selectedTipo,
     dataInicio,
     dataFim,
+    sortOrder,
   ]);
 
   const totalPages = Math.ceil(filteredTransactions.length / itemsPerPage) || 1;
@@ -292,12 +420,13 @@ export const LancamentosView: React.FC = () => {
         />
       </div>
 
-      {/* Filter Bar with Horizontal Chips & Fast Search */}
-      <div className="bg-white p-4 rounded-2xl border border-[#DEE2E6] shadow-xs flex flex-col gap-3">
-        {/* Top: Search Bar + Advanced Filters Toggle */}
-        <div className="flex items-center gap-2">
+      {/* Filter Bar with Segmented Controls & Quick Category Shortcuts */}
+      <div className="bg-white p-3 sm:p-3.5 rounded-2xl border border-gray-200 shadow-2xs flex flex-col gap-2.5">
+        {/* Row 1: Search Input + Segmented Tipo + Advanced Filters Button */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+          {/* Search Bar */}
           <div className="relative flex-1 min-w-0">
-            <span className="material-symbols-outlined absolute left-3.5 top-2.5 text-gray-400 text-[18px] pointer-events-none">
+            <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-[18px] pointer-events-none">
               search
             </span>
             <input
@@ -308,100 +437,213 @@ export const LancamentosView: React.FC = () => {
                 setCurrentPage(1);
               }}
               placeholder="Buscar lançamento, favorecido ou descrição..."
-              className="w-full pl-10 pr-8 py-2 text-xs rounded-xl border border-[#DEE2E6] text-[#010102] bg-white focus:border-[#835400] focus:ring-1 focus:ring-[#835400]/20 focus:outline-none"
+              className="w-full pl-9 pr-8 py-1.5 text-xs rounded-xl border border-gray-200 text-gray-900 bg-gray-50/60 hover:bg-white focus:bg-white focus:border-[#835400] focus:ring-1 focus:ring-[#835400]/20 focus:outline-none transition-all"
             />
             {localSearch && (
               <button
                 type="button"
-                onClick={() => setLocalSearch('')}
-                className="absolute right-3 top-2.5 text-xs text-gray-400 hover:text-black"
+                onClick={() => {
+                  setLocalSearch('');
+                  setCurrentPage(1);
+                }}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 text-xs p-1"
+                title="Limpar busca"
               >
                 ✕
               </button>
             )}
           </div>
 
-          <button
-            onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
-            className={`px-3 py-2 text-xs font-bold rounded-xl border transition-all flex items-center gap-1.5 shrink-0 select-none ${
-              showAdvancedFilters || (selectedCategoria !== 'Todas as Categorias' || selectedResponsavel !== 'Todos os Responsáveis')
-                ? 'bg-[#835400] text-white border-[#835400] shadow-xs'
-                : 'bg-gray-50 hover:bg-gray-100 text-gray-700 border-[#DEE2E6]'
-            }`}
-            title="Filtros avançados (Datas e Responsável)"
-          >
-            <span className="material-symbols-outlined text-[16px]">tune</span>
-            <span className="hidden sm:inline">Filtros</span>
-          </button>
-        </div>
-
-        {/* Horizontal Chips Filter Bar (Scrollable on Mobile) */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none select-none">
-          {/* Tipo Chips */}
-          <button
-            onClick={() => {
-              setSelectedTipo('todos');
-              setCurrentPage(1);
-            }}
-            className={`px-3 py-1.5 text-xs font-bold rounded-xl whitespace-nowrap transition-all ${
-              selectedTipo === 'todos'
-                ? 'bg-[#010102] text-white shadow-xs'
-                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
-          >
-            Todos
-          </button>
-
-          <button
-            onClick={() => {
-              setSelectedTipo('entrada');
-              setCurrentPage(1);
-            }}
-            className={`px-3 py-1.5 text-xs font-bold rounded-xl whitespace-nowrap transition-all flex items-center gap-1 ${
-              selectedTipo === 'entrada'
-                ? 'bg-[#2F9E44] text-white shadow-xs'
-                : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
-            }`}
-          >
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-            Entradas
-          </button>
-
-          <button
-            onClick={() => {
-              setSelectedTipo('saida');
-              setCurrentPage(1);
-            }}
-            className={`px-3 py-1.5 text-xs font-bold rounded-xl whitespace-nowrap transition-all flex items-center gap-1 ${
-              selectedTipo === 'saida'
-                ? 'bg-[#E03131] text-white shadow-xs'
-                : 'bg-red-50 text-red-800 hover:bg-red-100'
-            }`}
-          >
-            <span className="w-1.5 h-1.5 rounded-full bg-red-500"></span>
-            Saídas
-          </button>
-
-          {/* Quick Category Chips */}
-          {['Venda de Asfalto (CBUQ)', 'Insumos / Matéria Prima', 'Combustível / Diesel', 'Folha de Pagamento'].map((catName) => {
-            const isCatSelected = selectedCategoria === catName;
-            return (
+          {/* Controls: Segmented Tipo & Advanced Filters */}
+          <div className="flex items-center gap-2 justify-between sm:justify-end shrink-0">
+            {/* Segmented Control for Tipo: Todos | Entradas | Saídas */}
+            <div className="inline-flex p-0.5 bg-gray-100 rounded-xl border border-gray-200/80 text-xs font-semibold select-none flex-1 sm:flex-initial">
               <button
-                key={catName}
+                type="button"
                 onClick={() => {
-                  setSelectedCategoria(isCatSelected ? 'Todas as Categorias' : catName);
+                  setSelectedTipo('todos');
                   setCurrentPage(1);
                 }}
-                className={`px-3 py-1.5 text-xs font-semibold rounded-xl whitespace-nowrap transition-all border ${
-                  isCatSelected
-                    ? 'bg-[#835400] text-white border-[#835400] shadow-xs'
-                    : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
+                className={`flex-1 sm:flex-initial px-3 py-1 rounded-lg transition-all text-xs cursor-pointer text-center ${
+                  selectedTipo === 'todos'
+                    ? 'bg-white text-gray-900 shadow-2xs font-bold'
+                    : 'text-gray-500 hover:text-gray-800'
                 }`}
               >
-                {catName}
+                Todos
               </button>
-            );
-          })}
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedTipo('entrada');
+                  setCurrentPage(1);
+                }}
+                className={`flex-1 sm:flex-initial px-3 py-1 rounded-lg transition-all text-xs flex items-center justify-center gap-1.5 cursor-pointer ${
+                  selectedTipo === 'entrada'
+                    ? 'bg-emerald-600 text-white shadow-2xs font-bold'
+                    : 'text-gray-500 hover:text-emerald-700'
+                }`}
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                Entradas
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedTipo('saida');
+                  setCurrentPage(1);
+                }}
+                className={`flex-1 sm:flex-initial px-3 py-1 rounded-lg transition-all text-xs flex items-center justify-center gap-1.5 cursor-pointer ${
+                  selectedTipo === 'saida'
+                    ? 'bg-red-600 text-white shadow-2xs font-bold'
+                    : 'text-gray-500 hover:text-red-700'
+                }`}
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-red-400 shrink-0" />
+                Saídas
+              </button>
+            </div>
+
+            {/* Toggle Advanced Filters */}
+            <button
+              type="button"
+              onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+              className={`px-2.5 py-1 text-xs font-semibold rounded-xl border transition-all flex items-center gap-1 shrink-0 select-none cursor-pointer h-7.5 ${
+                showAdvancedFilters ||
+                selectedCategoria !== 'Todas as Categorias' ||
+                selectedResponsavel !== 'Todos os Responsáveis' ||
+                dataInicio ||
+                dataFim
+                  ? 'bg-[#835400] text-white border-[#835400] shadow-xs'
+                  : 'bg-white hover:bg-gray-50 text-gray-700 border-gray-200'
+              }`}
+              title="Filtros avançados (Datas e Responsável)"
+            >
+              <span className="material-symbols-outlined text-[15px]">tune</span>
+              <span className="hidden md:inline">Filtros</span>
+              {(selectedResponsavel !== 'Todos os Responsáveis' || dataInicio || dataFim) && (
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-300" />
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* Row 2: Category Selector Dropdown & Pinned Shortcut Chips */}
+        <div className="flex items-center gap-2 pt-2 border-t border-gray-100 flex-wrap sm:flex-nowrap">
+          {/* Quick Category Selector Dropdown */}
+          <div className="relative shrink-0 flex items-center">
+            <select
+              value={selectedCategoria}
+              onChange={(e) => {
+                setSelectedCategoria(e.target.value);
+                const found = categories.find(
+                  (c) => c.nome.trim().toLowerCase() === e.target.value.trim().toLowerCase()
+                );
+                if (found) {
+                  if (found.tipo === 'despesa' && selectedTipo === 'entrada') {
+                    setSelectedTipo('saida');
+                  } else if (found.tipo === 'receita' && selectedTipo === 'saida') {
+                    setSelectedTipo('entrada');
+                  }
+                }
+                setCurrentPage(1);
+              }}
+              className={`pl-6 pr-6 py-1 text-xs font-semibold rounded-lg border transition-all cursor-pointer appearance-none bg-white focus:outline-none focus:ring-1 focus:ring-[#835400] ${
+                selectedCategoria !== 'Todas as Categorias'
+                  ? 'border-[#835400] text-[#835400] bg-[#FFF4E6]/70 font-bold'
+                  : 'border-gray-200 text-gray-600 hover:bg-gray-50'
+              }`}
+              title="Filtrar por qualquer categoria cadastrada no sistema"
+            >
+              <option value="Todas as Categorias">Todas as Categorias</option>
+              <optgroup label="Despesas (Saídas)">
+                {categories
+                  .filter((c) => c.tipo === 'despesa')
+                  .map((c) => (
+                    <option key={c.id} value={c.nome}>
+                      {c.nome}
+                    </option>
+                  ))}
+              </optgroup>
+              <optgroup label="Receitas (Entradas)">
+                {categories
+                  .filter((c) => c.tipo === 'receita')
+                  .map((c) => (
+                    <option key={c.id} value={c.nome}>
+                      {c.nome}
+                    </option>
+                  ))}
+              </optgroup>
+            </select>
+            <span className="material-symbols-outlined absolute left-1.5 text-gray-400 text-[14px] pointer-events-none">
+              label
+            </span>
+            <span className="material-symbols-outlined absolute right-1.5 text-gray-400 text-[15px] pointer-events-none">
+              expand_more
+            </span>
+          </div>
+
+          {/* Dynamic Category Filter Chips (Pinned by user) */}
+          <div className="flex items-center gap-1.5 overflow-x-auto py-0.5 scrollbar-thin flex-1 min-w-0">
+            {visibleCategoryChips.map((cat) => {
+              const isCatSelected =
+                selectedCategoria.trim().toLowerCase() === cat.nome.trim().toLowerCase();
+              const dotColor =
+                cat.cor || (cat.tipo === 'receita' ? '#2F9E44' : '#E03131');
+
+              return (
+                <button
+                  key={cat.id || cat.nome}
+                  type="button"
+                  onClick={() => handleToggleCategoryChip(cat.nome)}
+                  className={`px-2.5 py-1 text-xs font-semibold rounded-lg whitespace-nowrap transition-all border flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                    isCatSelected
+                      ? 'bg-[#835400] text-white border-[#835400] shadow-2xs'
+                      : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50 hover:border-gray-300'
+                  }`}
+                  title={`Filtrar apenas por ${cat.nome}`}
+                >
+                  <span
+                    className="w-2 h-2 rounded-full shrink-0"
+                    style={{ backgroundColor: isCatSelected ? '#FFFFFF' : dotColor }}
+                  />
+                  <span>{cat.nome}</span>
+                  {isCatSelected && (
+                    <span className="material-symbols-outlined text-[13px] ml-0.5 hover:text-red-200">
+                      close
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+
+            {/* Button to Customize which category shortcuts appear */}
+            <button
+              type="button"
+              onClick={() => setIsCustomizeChipsOpen(true)}
+              className="px-2 py-1 text-[11px] text-gray-500 hover:text-[#835400] hover:bg-[#FFF4E6] rounded-lg border border-dashed border-gray-300 hover:border-[#835400] whitespace-nowrap transition-all flex items-center gap-1 shrink-0 cursor-pointer"
+              title="Escolher quais categorias exibir como atalhos rápidos"
+            >
+              <span className="material-symbols-outlined text-[14px]">tune</span>
+              <span>Atalhos</span>
+            </button>
+          </div>
+
+          {/* Quick Clear Filter Button when category is active */}
+          {selectedCategoria !== 'Todas as Categorias' && (
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedCategoria('Todas as Categorias');
+                setCurrentPage(1);
+              }}
+              className="text-xs text-red-600 hover:text-red-800 font-semibold px-2 py-1 rounded hover:bg-red-50 flex items-center gap-1 shrink-0 cursor-pointer transition-colors"
+              title="Limpar filtro de categoria"
+            >
+              <span className="material-symbols-outlined text-[14px]">close</span>
+              <span className="hidden sm:inline">Limpar</span>
+            </button>
+          )}
         </div>
 
         {/* Collapsible Advanced Filters Area */}
@@ -536,16 +778,77 @@ export const LancamentosView: React.FC = () => {
           />
         ) : (
           <>
+            {/* Table Sub-header with count and column visibility options */}
+            <div className="px-4 py-2 bg-gray-50/70 border-b border-gray-100 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500">
+              <span className="font-medium text-[11px]">
+                Exibindo <strong className="text-gray-900">{paginatedTransactions.length}</strong> de {filteredTransactions.length} lançamento{filteredTransactions.length !== 1 ? 's' : ''}
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSortOrder((prev) => (prev === 'desc' ? 'asc' : 'desc'));
+                    setCurrentPage(1);
+                  }}
+                  className={`text-[11px] font-semibold px-2.5 py-1 rounded-lg border transition-all flex items-center gap-1.5 cursor-pointer select-none ${
+                    sortOrder === 'desc'
+                      ? 'bg-amber-50 text-amber-900 border-amber-200 hover:bg-amber-100'
+                      : 'bg-blue-50 text-blue-900 border-blue-200 hover:bg-blue-100'
+                  }`}
+                  title="Clique para inverter a ordem cronológica dos lançamentos"
+                >
+                  <span className="material-symbols-outlined text-[15px]">
+                    {sortOrder === 'desc' ? 'arrow_downward' : 'arrow_upward'}
+                  </span>
+                  <span>{sortOrder === 'desc' ? 'Mais recentes primeiro' : 'Mais antigos primeiro'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={toggleShowResponsavelCol}
+                  className={`text-[11px] font-semibold px-2.5 py-1 rounded-lg border transition-all flex items-center gap-1.5 cursor-pointer select-none ${
+                    showResponsavelCol
+                      ? 'bg-[#835400] text-white border-[#835400] shadow-2xs'
+                      : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-100'
+                  }`}
+                  title="Alternar exibição da coluna Responsável na listagem principal"
+                >
+                  <span className="material-symbols-outlined text-[14px]">
+                    {showResponsavelCol ? 'visibility_off' : 'visibility'}
+                  </span>
+                  <span>{showResponsavelCol ? 'Ocultar Responsável' : 'Exibir Coluna Responsável'}</span>
+                </button>
+              </div>
+            </div>
+
             {/* Desktop / Tablet View: Fluid Table with clean text wrapping */}
             <div className="hidden md:block w-full overflow-x-auto scrollbar-thin">
               <table className="w-full text-left border-collapse min-w-[880px]">
                 <thead className="bg-gray-50/80 border-b border-[#DEE2E6] text-xs font-bold text-gray-500">
                   <tr>
-                    <th className="py-3 px-3 w-24 whitespace-nowrap">Data</th>
+                    <th
+                      onClick={() => {
+                        setSortOrder((prev) => (prev === 'desc' ? 'asc' : 'desc'));
+                        setCurrentPage(1);
+                      }}
+                      className="py-3 px-3 w-28 whitespace-nowrap cursor-pointer hover:bg-gray-100 select-none group/th transition-colors"
+                      title="Clique para alternar ordem das datas"
+                    >
+                      <div className="flex items-center gap-1 font-bold text-gray-700">
+                        <span>Data</span>
+                        <span className="material-symbols-outlined text-[15px] text-[#835400] group-hover/th:scale-110 transition-transform">
+                          {sortOrder === 'desc' ? 'arrow_downward' : 'arrow_upward'}
+                        </span>
+                      </div>
+                    </th>
                     <th className="py-3 px-2 w-24 text-center whitespace-nowrap">Tipo</th>
                     <th className="py-3 px-3 min-w-[180px] max-w-[280px]">Descrição / Favorecido</th>
                     <th className="py-3 px-3 min-w-[130px] max-w-[190px]">Categoria</th>
-                    <th className="py-3 px-3 min-w-[110px] max-w-[160px] hidden lg:table-cell">Responsável</th>
+                    {showResponsavelCol && (
+                      <th className="py-3 px-3 min-w-[120px] max-w-[170px] bg-amber-50/40 text-amber-900">
+                        Responsável
+                      </th>
+                    )}
                     <th className="py-3 px-3 min-w-[110px] max-w-[160px] hidden xl:table-cell">Pagamento</th>
                     <th className="py-3 px-3 w-32 text-right whitespace-nowrap">Valor</th>
                     <th className="py-3 px-2 w-28 text-center whitespace-nowrap">Ações</th>
@@ -578,13 +881,49 @@ export const LancamentosView: React.FC = () => {
                         )}
                       </td>
                       <td className="py-3 px-3 min-w-[130px] max-w-[190px]">
-                        <span className="bg-gray-100 px-2 py-0.5 rounded text-gray-700 text-[10px] font-bold uppercase tracking-wider border border-gray-200 inline-block break-words leading-tight">
-                          {tx.categoria}
-                        </span>
+                        {(() => {
+                          const catMeta = getCategoryMeta(tx.categoria);
+                          const catColor = catMeta?.cor || (tx.tipo === 'entrada' ? '#2F9E44' : '#835400');
+                          const isCatSelected =
+                            selectedCategoria.trim().toLowerCase() === tx.categoria.trim().toLowerCase();
+
+                          return (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleToggleCategoryChip(tx.categoria);
+                              }}
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border inline-flex items-center gap-1.5 transition-all cursor-pointer select-none max-w-full truncate ${
+                                isCatSelected
+                                  ? 'bg-[#835400] text-white border-[#835400] shadow-2xs'
+                                  : 'hover:opacity-85'
+                              }`}
+                              style={
+                                isCatSelected
+                                  ? undefined
+                                  : {
+                                      backgroundColor: `${catColor}14`,
+                                      borderColor: `${catColor}35`,
+                                      color: catColor,
+                                    }
+                              }
+                              title={`Clique para filtrar apenas lançamentos de ${tx.categoria}`}
+                            >
+                              <span
+                                className="w-1.5 h-1.5 rounded-full shrink-0"
+                                style={{ backgroundColor: isCatSelected ? '#FFFFFF' : catColor }}
+                              />
+                              <span className="truncate">{tx.categoria}</span>
+                            </button>
+                          );
+                        })()}
                       </td>
-                      <td className="py-3 px-3 text-gray-600 font-medium break-words leading-tight hidden lg:table-cell" title={tx.responsavel}>
-                        {tx.responsavel}
-                      </td>
+                      {showResponsavelCol && (
+                        <td className="py-3 px-3 text-gray-700 font-medium break-words leading-tight bg-amber-50/20" title={tx.responsavel}>
+                          {tx.responsavel}
+                        </td>
+                      )}
                       <td className="py-3 px-3 text-gray-500 text-[11px] break-words leading-tight hidden xl:table-cell" title={tx.formaPagamento}>
                         {tx.formaPagamento}
                       </td>
@@ -698,9 +1037,43 @@ export const LancamentosView: React.FC = () => {
                     {/* Bottom: Categoria + Pagamento + Actions */}
                     <div className="flex items-center justify-between pt-1 border-t border-gray-100 gap-2 mt-1">
                       <div className="flex items-center gap-1.5 flex-wrap min-w-0">
-                        <span className="bg-gray-100 px-2 py-0.5 rounded text-gray-700 text-[10px] font-bold uppercase tracking-wider border border-gray-200">
-                          {tx.categoria}
-                        </span>
+                        {(() => {
+                          const catMeta = getCategoryMeta(tx.categoria);
+                          const catColor = catMeta?.cor || (tx.tipo === 'entrada' ? '#2F9E44' : '#835400');
+                          const isCatSelected =
+                            selectedCategoria.trim().toLowerCase() === tx.categoria.trim().toLowerCase();
+
+                          return (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleToggleCategoryChip(tx.categoria);
+                              }}
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border inline-flex items-center gap-1.5 transition-all cursor-pointer select-none max-w-[150px] truncate ${
+                                isCatSelected
+                                  ? 'bg-[#835400] text-white border-[#835400] shadow-2xs'
+                                  : 'hover:opacity-85'
+                              }`}
+                              style={
+                                isCatSelected
+                                  ? undefined
+                                  : {
+                                      backgroundColor: `${catColor}14`,
+                                      borderColor: `${catColor}35`,
+                                      color: catColor,
+                                    }
+                              }
+                              title={`Filtrar por ${tx.categoria}`}
+                            >
+                              <span
+                                className="w-1.5 h-1.5 rounded-full shrink-0"
+                                style={{ backgroundColor: isCatSelected ? '#FFFFFF' : catColor }}
+                              />
+                              <span className="truncate">{tx.categoria}</span>
+                            </button>
+                          );
+                        })()}
                         <span className="text-[10px] text-gray-400">
                           {tx.formaPagamento}
                         </span>
@@ -838,8 +1211,11 @@ export const LancamentosView: React.FC = () => {
               </div>
 
               <div>
-                <span className="text-gray-500 block font-medium">Responsável / Operador</span>
-                <span className="font-bold text-[#010102]">{selectedTxForDetail.responsavel}</span>
+                <span className="text-gray-500 block font-medium">Registrado por (Login)</span>
+                <span className="font-bold text-[#010102] flex items-center gap-1.5 mt-0.5">
+                  <span className="material-symbols-outlined text-[16px] text-gray-400">account_circle</span>
+                  {selectedTxForDetail.responsavel || 'Administrador'}
+                </span>
               </div>
 
               <div>
@@ -907,6 +1283,246 @@ export const LancamentosView: React.FC = () => {
         onClose={() => setIsImportModalOpen(false)}
         entityType="transacoes"
       />
+
+      {/* Modal: Personalizar Atalhos de Categorias */}
+      {isCustomizeChipsOpen && (
+        <Modal
+          isOpen={true}
+          onClose={() => setIsCustomizeChipsOpen(false)}
+          title={
+            <div className="flex items-center gap-2">
+              <span className="material-symbols-outlined text-[#835400]">tune</span>
+              <span>Personalizar Atalhos de Categorias</span>
+            </div>
+          }
+          subtitle="Escolha quais categorias contábeis devem ficar fixadas como botões rápidos na barra de filtros."
+          size="lg"
+          footer={
+            <div className="flex items-center justify-between w-full gap-2 flex-wrap">
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="xs"
+                  onClick={() => {
+                    const defaultBase = [
+                      'Venda de Asfalto (CBUQ)',
+                      'Insumos / Matéria Prima',
+                      'Combustível / Diesel',
+                      'Folha de Pagamento',
+                    ];
+                    const customNames = categories
+                      .filter(
+                        (c) =>
+                          !defaultBase.some(
+                            (b) => b.trim().toLowerCase() === c.nome.trim().toLowerCase()
+                          )
+                      )
+                      .map((c) => c.nome);
+                    setTempSelectedChips([...defaultBase, ...customNames]);
+                  }}
+                  title="Restaurar lista sugerida padrão com categorias personalizadas"
+                >
+                  Restaurar Padrão
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  onClick={() => {
+                    if (tempSelectedChips.length === categories.length) {
+                      setTempSelectedChips([]);
+                    } else {
+                      setTempSelectedChips(categories.map((c) => c.nome));
+                    }
+                  }}
+                >
+                  {tempSelectedChips.length === categories.length ? 'Desmarcar Todas' : 'Marcar Todas'}
+                </Button>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setIsCustomizeChipsOpen(false)}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  className="bg-[#835400] hover:bg-[#6b4400] text-white border-none"
+                  icon="check"
+                  onClick={handleSaveCustomizedChips}
+                >
+                  Salvar Atalhos ({tempSelectedChips.length})
+                </Button>
+              </div>
+            </div>
+          }
+        >
+          <div className="space-y-4">
+            {/* Search within categories */}
+            <div className="relative">
+              <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-[18px]">
+                search
+              </span>
+              <input
+                type="text"
+                placeholder="Pesquisar categoria por nome..."
+                value={customizeSearch}
+                onChange={(e) => setCustomizeSearch(e.target.value)}
+                className="w-full pl-9 pr-3 py-2 text-xs border border-gray-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-[#835400] bg-gray-50 focus:bg-white"
+              />
+            </div>
+
+            {/* Quick stats info */}
+            <div className="text-[11px] text-gray-500 flex items-center justify-between">
+              <span>
+                {tempSelectedChips.length} de {categories.length} categorias selecionadas como atalho rápido
+              </span>
+              <span className="text-gray-400 hidden sm:inline">
+                Os atalhos aparecem horizontalmente abaixo da busca
+              </span>
+            </div>
+
+            {/* Grouped lists: Despesas and Receitas */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[380px] overflow-y-auto pr-1">
+              {/* Despesas */}
+              <div className="border border-red-100 rounded-xl p-3 bg-red-50/20">
+                <div className="flex items-center justify-between mb-2.5 pb-1.5 border-b border-red-100">
+                  <span className="text-xs font-bold text-red-900 flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-red-500"></span>
+                    Despesas ({categories.filter((c) => c.tipo === 'despesa').length})
+                  </span>
+                </div>
+                <div className="space-y-1.5">
+                  {categories
+                    .filter((c) => c.tipo === 'despesa')
+                    .filter((c) =>
+                      customizeSearch
+                        ? c.nome.toLowerCase().includes(customizeSearch.toLowerCase())
+                        : true
+                    )
+                    .map((cat) => {
+                      const isChecked = tempSelectedChips.some(
+                        (n) => n.trim().toLowerCase() === cat.nome.trim().toLowerCase()
+                      );
+                      const catColor = cat.cor || '#E03131';
+
+                      return (
+                        <label
+                          key={cat.id || cat.nome}
+                          className={`flex items-center justify-between p-2 rounded-lg border text-xs cursor-pointer transition-all select-none ${
+                            isChecked
+                              ? 'bg-white border-amber-300 shadow-2xs'
+                              : 'bg-white/60 border-transparent hover:bg-white hover:border-gray-200'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() => {
+                                if (isChecked) {
+                                  setTempSelectedChips(
+                                    tempSelectedChips.filter(
+                                      (n) => n.trim().toLowerCase() !== cat.nome.trim().toLowerCase()
+                                    )
+                                  );
+                                } else {
+                                  setTempSelectedChips([...tempSelectedChips, cat.nome]);
+                                }
+                              }}
+                              className="rounded border-gray-300 text-[#835400] focus:ring-[#835400] cursor-pointer"
+                            />
+                            <span
+                              className="w-2.5 h-2.5 rounded-full shrink-0"
+                              style={{ backgroundColor: catColor }}
+                            />
+                            <span className="font-semibold text-gray-800 truncate" title={cat.nome}>
+                              {cat.nome}
+                            </span>
+                          </div>
+                          {cat.icone && (
+                            <span className="material-symbols-outlined text-[15px] text-gray-400 shrink-0 ml-2">
+                              {cat.icone}
+                            </span>
+                          )}
+                        </label>
+                      );
+                    })}
+                </div>
+              </div>
+
+              {/* Receitas */}
+              <div className="border border-emerald-100 rounded-xl p-3 bg-emerald-50/20">
+                <div className="flex items-center justify-between mb-2.5 pb-1.5 border-b border-emerald-100">
+                  <span className="text-xs font-bold text-emerald-900 flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                    Receitas ({categories.filter((c) => c.tipo === 'receita').length})
+                  </span>
+                </div>
+                <div className="space-y-1.5">
+                  {categories
+                    .filter((c) => c.tipo === 'receita')
+                    .filter((c) =>
+                      customizeSearch
+                        ? c.nome.toLowerCase().includes(customizeSearch.toLowerCase())
+                        : true
+                    )
+                    .map((cat) => {
+                      const isChecked = tempSelectedChips.some(
+                        (n) => n.trim().toLowerCase() === cat.nome.trim().toLowerCase()
+                      );
+                      const catColor = cat.cor || '#2F9E44';
+
+                      return (
+                        <label
+                          key={cat.id || cat.nome}
+                          className={`flex items-center justify-between p-2 rounded-lg border text-xs cursor-pointer transition-all select-none ${
+                            isChecked
+                              ? 'bg-white border-amber-300 shadow-2xs'
+                              : 'bg-white/60 border-transparent hover:bg-white hover:border-gray-200'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() => {
+                                if (isChecked) {
+                                  setTempSelectedChips(
+                                    tempSelectedChips.filter(
+                                      (n) => n.trim().toLowerCase() !== cat.nome.trim().toLowerCase()
+                                    )
+                                  );
+                                } else {
+                                  setTempSelectedChips([...tempSelectedChips, cat.nome]);
+                                }
+                              }}
+                              className="rounded border-gray-300 text-[#835400] focus:ring-[#835400] cursor-pointer"
+                            />
+                            <span
+                              className="w-2.5 h-2.5 rounded-full shrink-0"
+                              style={{ backgroundColor: catColor }}
+                            />
+                            <span className="font-semibold text-gray-800 truncate" title={cat.nome}>
+                              {cat.nome}
+                            </span>
+                          </div>
+                          {cat.icone && (
+                            <span className="material-symbols-outlined text-[15px] text-gray-400 shrink-0 ml-2">
+                              {cat.icone}
+                            </span>
+                          )}
+                        </label>
+                      );
+                    })}
+                </div>
+              </div>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 };

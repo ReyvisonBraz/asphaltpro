@@ -40,6 +40,13 @@ export const LoginView: React.FC = () => {
   const [fbAuthDomain, setFbAuthDomain] = useState('');
   const [isConnectingFb, setIsConnectingFb] = useState(false);
 
+  // Unauthorized Domain Guidance State
+  const [unauthorizedDomainInfo, setUnauthorizedDomainInfo] = useState<{
+    domain: string;
+    projectId?: string;
+  } | null>(null);
+  const [copiedDomain, setCopiedDomain] = useState(false);
+
   const [firebaseConfigState, setFirebaseConfigState] = useState(() => getSavedFirebaseConfig());
   const isFirebaseActive = !!(firebaseConfigState && firebaseConfigState.projectId && firebaseConfigState.apiKey && firebaseConfigState.isActive);
 
@@ -162,8 +169,13 @@ export const LoginView: React.FC = () => {
       if (err?.code === 'auth/popup-closed-by-user') {
         showToast('Janela de login do Google foi fechada.', 'info');
       } else if (err?.code === 'auth/unauthorized-domain') {
+        const currentDomain = typeof window !== 'undefined' ? window.location.hostname : '';
+        setUnauthorizedDomainInfo({
+          domain: currentDomain,
+          projectId: firebaseConfigState?.projectId
+        });
         showToast(
-          'Domínio do app não autorizado no Firebase Auth. No console do Firebase, acesse Authentication > Settings > Authorized domains.',
+          `Domínio ${currentDomain} não autorizado no Firebase. Siga as instruções abaixo para liberar.`,
           'error'
         );
       } else if (err?.code === 'auth/operation-not-allowed') {
@@ -345,6 +357,74 @@ export const LoginView: React.FC = () => {
             <p className="text-[10px] text-gray-400 text-center">
               Restrito a e-mails cadastrados previamente pela administração.
             </p>
+
+            {/* Unauthorized Domain Guidance Card */}
+            {unauthorizedDomainInfo && (
+              <div className="p-3.5 bg-amber-50/95 border-2 border-amber-300 rounded-xl space-y-2.5 text-xs text-amber-950 animate-in fade-in">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-start gap-2">
+                    <span className="material-symbols-outlined text-amber-700 text-[20px] shrink-0 mt-0.5">
+                      domain_disabled
+                    </span>
+                    <div>
+                      <span className="font-bold text-sm block text-amber-950">
+                        Liberar Domínio no Firebase Auth
+                      </span>
+                      <p className="text-[11px] text-amber-800 leading-snug mt-0.5">
+                        O Google bloqueou a autenticação porque este endereço ainda não foi autorizado no projeto Firebase{' '}
+                        <strong>{unauthorizedDomainInfo.projectId || ''}</strong>.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setUnauthorizedDomainInfo(null)}
+                    className="text-amber-600 hover:text-amber-900 p-1 text-sm font-bold cursor-pointer"
+                    title="Fechar"
+                  >
+                    &times;
+                  </button>
+                </div>
+
+                <div className="bg-white/90 border border-amber-200 rounded-lg p-2 flex items-center justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <span className="text-[10px] uppercase font-bold text-gray-400 block">Domínio a autorizar</span>
+                    <code className="text-xs font-mono font-bold text-gray-800 select-all truncate block">
+                      {unauthorizedDomainInfo.domain}
+                    </code>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (typeof navigator !== 'undefined' && navigator.clipboard) {
+                        navigator.clipboard.writeText(unauthorizedDomainInfo.domain);
+                        setCopiedDomain(true);
+                        setTimeout(() => setCopiedDomain(false), 2500);
+                        showToast('Domínio copiado para a área de transferência!', 'success');
+                      }
+                    }}
+                    className="px-2.5 py-1.5 bg-[#835400] hover:bg-[#6c4500] text-white rounded-md font-bold text-[11px] flex items-center gap-1 shrink-0 cursor-pointer shadow-xs transition-colors"
+                  >
+                    <span className="material-symbols-outlined text-[14px]">
+                      {copiedDomain ? 'check' : 'content_copy'}
+                    </span>
+                    {copiedDomain ? 'Copiado!' : 'Copiar'}
+                  </button>
+                </div>
+
+                <div className="text-[11px] text-amber-900 bg-amber-100/70 p-2.5 rounded-lg space-y-1">
+                  <span className="font-bold block">Passo a passo no Console do Firebase:</span>
+                  <ol className="list-decimal list-inside space-y-0.5 text-[10px] text-amber-800">
+                    <li>Acesse o <strong>Firebase Console &gt; Authentication &gt; Settings (Configurações)</strong></li>
+                    <li>Vá na aba <strong>Authorized domains (Domínios autorizados)</strong></li>
+                    <li>Clique em <strong>Add domain (Adicionar domínio)</strong> e cole o domínio copiado acima</li>
+                  </ol>
+                  <span className="text-[10px] text-amber-700 italic block pt-0.5">
+                    Dica: Você pode acessar agora mesmo usando os perfis de acesso rápido com 1 clique logo abaixo!
+                  </span>
+                </div>
+              </div>
+            )}
 
             {!isFirebaseActive && (
               <div className="p-3 bg-amber-50/90 border border-amber-200 rounded-xl space-y-2 text-xs text-amber-950 animate-in fade-in">

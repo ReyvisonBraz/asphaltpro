@@ -3,6 +3,7 @@ import { syncManager } from '../services/syncManager';
 import { errorDiagnosticsService } from '../services/errorDiagnosticsService';
 import { securityRateLimitService } from '../services/securityRateLimitService';
 import { logoutFirebaseAuth, getSavedFirebaseConfig, fetchCollectionFromFirestore, subscribeToFirestoreCollection } from '../services/firebaseConfig';
+import { parseAnyDateToTimestamp } from '../utils/formatters';
 import {
   exportSystemJsonBackup,
   exportTransactionsCsv,
@@ -297,6 +298,37 @@ function deduplicateItems<T extends { id: string }>(items: T[], prefix: string =
   });
 }
 
+export function parseTxDateToTimestamp(dateStr: string): number {
+  if (!dateStr) return 0;
+  const ts = parseAnyDateToTimestamp(dateStr);
+  return ts ?? 0;
+}
+
+export function getTxCreationTimestamp(tx: Transaction): number {
+  if (tx.createdAt) {
+    const t = Date.parse(tx.createdAt);
+    if (!isNaN(t)) return t;
+  }
+  const match = tx.id?.match(/tx-(\d+)/);
+  if (match) {
+    const num = parseInt(match[1], 10);
+    if (!isNaN(num)) return num;
+  }
+  return 0;
+}
+
+export function sortTransactionsDescending(items: Transaction[]): Transaction[] {
+  if (!Array.isArray(items)) return [];
+  return [...items].sort((a, b) => {
+    const timeA = parseTxDateToTimestamp(a.data);
+    const timeB = parseTxDateToTimestamp(b.data);
+    if (timeB !== timeA) {
+      return timeB - timeA; // Most recent date first
+    }
+    return getTxCreationTimestamp(b) - getTxCreationTimestamp(a); // Most recently created first
+  });
+}
+
 function deduplicateTransactionsList(items: Transaction[]): Transaction[] {
   if (!Array.isArray(items)) return [];
   const seen = new Set<string>();
@@ -314,7 +346,7 @@ function deduplicateTransactionsList(items: Transaction[]): Transaction[] {
       cleaned.push(tx);
     }
   }
-  return cleaned;
+  return sortTransactionsDescending(cleaned);
 }
 
 // Auto-sanitize on load if transitioning to clean production base requested by user
@@ -1230,7 +1262,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         id: `tx-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
         createdAt: new Date().toISOString()
       };
-      setTransactions(prev => [newTx, ...prev]);
+      setTransactions(prev => sortTransactionsDescending([newTx, ...prev]));
       syncManager.enqueue('transaction', 'create', newTx.id, newTx);
       showToast(`Lançamento de ${txData.tipo === 'entrada' ? 'Receita' : 'Despesa'} registrado!`, 'success');
     } catch (err) {
@@ -1249,7 +1281,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const updateTransaction = (id: string, txData: Partial<Transaction>) => {
     try {
-      setTransactions(prev => prev.map(t => {
+      setTransactions(prev => sortTransactionsDescending(prev.map(t => {
         if (t.id === id) {
           const updated: Transaction = {
             ...t,
@@ -1260,7 +1292,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           return updated;
         }
         return t;
-      }));
+      })));
       showToast('Lançamento atualizado com sucesso!', 'success');
     } catch (err) {
       reportSystemError({
@@ -2103,7 +2135,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   /**
    * RECONCILIATION ENGINE:
    * Merges authoritative cloud documents with local state while properly
-   * honoring deletions across devices and preserving pending offline creations.
+   * honoring deletions across devices, respecting persistent tombstones,
+   * and preserving genuinely pending offline creations.
    */
   const reconcileWithCloud = <T extends { id: string }>(
     cloudItems: T[],
@@ -2115,29 +2148,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const pendingCreates = queue.filter(
       (q) => q.entityType === entityType && q.action === 'create' && q.status === 'pending'
     );
-    // Items deleted locally on this device while offline
+    // Items deleted locally on this device
     const pendingDeletes = new Set(
       queue.filter((q) => q.entityType === entityType && q.action === 'delete').map((q) => q.entityId)
     );
+    const deletedTombstones = syncManager.getDeletedEntityIds();
 
     const map = new Map<string, T>();
 
     // 1. Authoritative Cloud state: all items currently existing in Firestore
     cloudItems.forEach((item) => {
-      // If local device deleted it offline, honor local delete
-      if (!pendingDeletes.has(item.id)) {
+      // If deleted on this device or marked with active tombstone, do not resurrect!
+      if (!pendingDeletes.has(item.id) && !deletedTombstones.has(item.id)) {
         map.set(item.id, item);
       }
     });
 
     // 2. Preserve any local documents that were created while offline and haven't synced yet
     pendingCreates.forEach((q) => {
-      if (q.payload && q.payload.id) {
-        map.set(q.payload.id, q.payload as T);
-      } else {
-        const localItem = prevItems.find((p) => p.id === q.entityId);
-        if (localItem) {
-          map.set(localItem.id, localItem);
+      if (!deletedTombstones.has(q.entityId) && !pendingDeletes.has(q.entityId)) {
+        if (q.payload && q.payload.id) {
+          map.set(q.payload.id, q.payload as T);
+        } else {
+          const localItem = prevItems.find((p) => p.id === q.entityId);
+          if (localItem) {
+            map.set(localItem.id, localItem);
+          }
         }
       }
     });
@@ -2147,8 +2183,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   /**
    * Reconciles Category records with Cloud Firestore.
-   * Ensures that any custom categories created locally (such as "FRETE") that are not yet
-   * present in Firestore are preserved AND automatically pushed to the cloud.
+   * Respects deletions and tombstones without resurrecting deleted categories.
    */
   const reconcileCategoriesWithCloud = (
     cloudCategories: Category[],
@@ -2158,30 +2193,40 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const pendingDeletes = new Set(
       queue.filter((q) => q.entityType === 'category' && q.action === 'delete').map((q) => q.entityId)
     );
+    const deletedTombstones = syncManager.getDeletedEntityIds();
 
     const map = new Map<string, Category>();
 
     // 1. Authoritative Cloud categories currently existing in Firestore
     cloudCategories.forEach((cat) => {
-      if (!pendingDeletes.has(cat.id)) {
+      if (!pendingDeletes.has(cat.id) && !deletedTombstones.has(cat.id)) {
         map.set(cat.id, cat);
       }
     });
 
-    // 2. Preserve any local categories (like "FRETE" or custom categories) not yet in cloud,
-    // and immediately push them to Firestore so other devices receive them in real-time!
-    prevCategories.forEach((cat) => {
-      if (!map.has(cat.id) && !pendingDeletes.has(cat.id)) {
-        map.set(cat.id, cat);
-        syncManager.enqueue('category', 'create', cat.id, cat);
+    // 2. Preserve only categories created offline pending sync
+    const pendingCreates = queue.filter(
+      (q) => q.entityType === 'category' && q.action === 'create' && q.status === 'pending'
+    );
+    pendingCreates.forEach((q) => {
+      if (!deletedTombstones.has(q.entityId) && !pendingDeletes.has(q.entityId)) {
+        if (q.payload && q.payload.id) {
+          map.set(q.payload.id, q.payload as Category);
+        } else {
+          const local = prevCategories.find((c) => c.id === q.entityId);
+          if (local) {
+            map.set(local.id, local);
+          }
+        }
       }
     });
 
-    // 3. Fallback to default INITIAL_CATEGORIES if completely empty
-    if (map.size === 0) {
+    // 3. Fallback to default INITIAL_CATEGORIES only if brand new local DB without cloud and without deletions
+    const config = getSavedFirebaseConfig();
+    const isFirebaseActive = !!(config && config.isActive && config.projectId);
+    if (map.size === 0 && !isFirebaseActive && deletedTombstones.size === 0) {
       INITIAL_CATEGORIES.forEach((cat) => {
         map.set(cat.id, cat);
-        syncManager.enqueue('category', 'create', cat.id, cat);
       });
     }
 
@@ -2190,6 +2235,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   /**
    * Reconciles BankAccount records with Cloud Firestore.
+   * Prevents deleted bank accounts from being resurrected by snapshots or missing-item loops.
    */
   const reconcileBankAccountsWithCloud = (
     cloudBanks: BankAccount[],
@@ -2199,26 +2245,40 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const pendingDeletes = new Set(
       queue.filter((q) => q.entityType === 'bankAccount' && q.action === 'delete').map((q) => q.entityId)
     );
+    const deletedTombstones = syncManager.getDeletedEntityIds();
 
     const map = new Map<string, BankAccount>();
 
+    // 1. Authoritative cloud bank accounts
     cloudBanks.forEach((b) => {
-      if (!pendingDeletes.has(b.id)) {
+      if (!pendingDeletes.has(b.id) && !deletedTombstones.has(b.id)) {
         map.set(b.id, b);
       }
     });
 
-    prevBanks.forEach((b) => {
-      if (!map.has(b.id) && !pendingDeletes.has(b.id)) {
-        map.set(b.id, b);
-        syncManager.enqueue('bankAccount', 'create', b.id, b);
+    // 2. Preserve only bank accounts created offline pending sync
+    const pendingCreates = queue.filter(
+      (q) => q.entityType === 'bankAccount' && q.action === 'create' && q.status === 'pending'
+    );
+    pendingCreates.forEach((q) => {
+      if (!deletedTombstones.has(q.entityId) && !pendingDeletes.has(q.entityId)) {
+        if (q.payload && q.payload.id) {
+          map.set(q.payload.id, q.payload as BankAccount);
+        } else {
+          const local = prevBanks.find((b) => b.id === q.entityId);
+          if (local) {
+            map.set(local.id, local);
+          }
+        }
       }
     });
 
-    if (map.size === 0) {
+    // Fallback to default INITIAL_BANK_ACCOUNTS only if brand new local DB without cloud and without deletions
+    const config = getSavedFirebaseConfig();
+    const isFirebaseActive = !!(config && config.isActive && config.projectId);
+    if (map.size === 0 && !isFirebaseActive && deletedTombstones.size === 0) {
       INITIAL_BANK_ACCOUNTS.forEach((b) => {
         map.set(b.id, b);
-        syncManager.enqueue('bankAccount', 'create', b.id, b);
       });
     }
 

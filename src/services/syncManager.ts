@@ -12,6 +12,7 @@ const SYNC_QUEUE_KEY = 'asphaltpro_sync_queue';
 const SYNC_LOGS_KEY = 'asphaltpro_sync_logs';
 const SIMULATED_OFFLINE_KEY = 'asphaltpro_simulated_offline';
 const SYNC_STATS_KEY = 'asphaltpro_sync_stats';
+const SYNC_DELETED_ENTITIES_KEY = 'asphaltpro_deleted_entities';
 
 type SyncListener = () => void;
 
@@ -59,6 +60,9 @@ class SyncManager {
     mode: 'cache_first_anti_abuse'
   };
 
+  // Persistent Tombstones to prevent deleted accounts/banks from being resurrected by snapshots
+  private deletedEntities: Record<string, { timestamp: number; entityType: string }> = {};
+
   private updateCachedStats() {
     this.cachedStats = {
       cachedReadsSaved: this.cachedReadsSaved,
@@ -86,6 +90,9 @@ class SyncManager {
     this.checkSyncIntegrity = this.checkSyncIntegrity.bind(this);
     this.recordCachedReadSaved = this.recordCachedReadSaved.bind(this);
     this.getOptimizationStats = this.getOptimizationStats.bind(this);
+    this.markEntityDeleted = this.markEntityDeleted.bind(this);
+    this.isEntityDeleted = this.isEntityDeleted.bind(this);
+    this.getDeletedEntityIds = this.getDeletedEntityIds.bind(this);
     
     this.loadFromStorage();
     this.initNetworkListeners();
@@ -96,11 +103,69 @@ class SyncManager {
     }
   }
 
+  /**
+   * Registers an entity ID as intentionally deleted.
+   * Tombstones persist in localStorage for up to 48 hours to prevent zombie restorations.
+   */
+  public markEntityDeleted(entityId: string, entityType: string) {
+    if (!entityId) return;
+    this.deletedEntities[entityId] = {
+      timestamp: Date.now(),
+      entityType,
+    };
+    this.saveDeletedEntitiesToStorage();
+  }
+
+  /**
+   * Returns whether an entity ID has been intentionally deleted and should not be resurrected.
+   */
+  public isEntityDeleted(entityId: string): boolean {
+    if (!entityId) return false;
+    const entry = this.deletedEntities[entityId];
+    if (!entry) return false;
+    // Tombstone TTL: 48 hours
+    const maxAge = 48 * 60 * 60 * 1000;
+    if (Date.now() - entry.timestamp > maxAge) {
+      delete this.deletedEntities[entityId];
+      this.saveDeletedEntitiesToStorage();
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Returns a Set of active deleted entity IDs for instantaneous reconciliation lookup.
+   */
+  public getDeletedEntityIds(): Set<string> {
+    const set = new Set<string>();
+    const now = Date.now();
+    const maxAge = 48 * 60 * 60 * 1000;
+    for (const [id, meta] of Object.entries(this.deletedEntities)) {
+      if (now - meta.timestamp <= maxAge) {
+        set.add(id);
+      }
+    }
+    return set;
+  }
+
+  private saveDeletedEntitiesToStorage() {
+    try {
+      localStorage.setItem(SYNC_DELETED_ENTITIES_KEY, JSON.stringify(this.deletedEntities));
+    } catch (e) {
+      console.warn('Erro ao salvar entidades deletadas no storage:', e);
+    }
+  }
+
   private loadFromStorage() {
     try {
       const savedQueue = localStorage.getItem(SYNC_QUEUE_KEY);
       if (savedQueue) {
         this.queue = JSON.parse(savedQueue);
+      }
+
+      const savedDeletes = localStorage.getItem(SYNC_DELETED_ENTITIES_KEY);
+      if (savedDeletes) {
+        this.deletedEntities = JSON.parse(savedDeletes);
       }
 
       const savedLogs = localStorage.getItem(SYNC_LOGS_KEY);
@@ -279,6 +344,7 @@ class SyncManager {
   /**
    * Enqueue a mutation with intelligent batching and idempotent deduplication.
    * If an update for the same entity already sits in the queue, merges payloads to save writes.
+   * If action is delete, registers a durable tombstone and safely commands deletion on cloud.
    */
   public enqueue(
     entityType: SyncQueueItem['entityType'],
@@ -286,31 +352,59 @@ class SyncManager {
     entityId: string,
     payload: any
   ) {
+    if (action === 'delete') {
+      // 1. Immediately register tombstone to prevent any snapshot or pull from resurrecting it
+      this.markEntityDeleted(entityId, entityType);
+
+      // 2. Remove all pending mutations for this entity
+      this.queue = this.queue.filter(
+        (q) => !(q.entityId === entityId && q.entityType === entityType)
+      );
+
+      // 3. Append definitive delete operation so Firestore deletes the document
+      const deleteItem: SyncQueueItem = {
+        id: 'sync_del_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6),
+        entityId,
+        entityType,
+        action: 'delete',
+        payload: payload || { id: entityId },
+        timestamp: new Date().toISOString(),
+        retryCount: 0,
+        status: 'pending',
+      };
+      this.queue = [...this.queue, deleteItem];
+      this.saveToStorage();
+
+      // Dispatch deletion faster to ensure cloud consistency across all connected devices
+      if (this.debounceTimer) {
+        clearTimeout(this.debounceTimer);
+      }
+      if (this.isOnline()) {
+        this.debounceTimer = setTimeout(() => {
+          this.processQueue();
+          this.debounceTimer = null;
+        }, 300);
+      } else {
+        this.addLog(
+          `Exclusão gravada em fila offline (${entityType}: ${entityId})`,
+          'warning'
+        );
+      }
+      return;
+    }
+
+    // If creating or updating, clear any previous tombstone for this ID
+    if (this.deletedEntities[entityId]) {
+      delete this.deletedEntities[entityId];
+      this.saveDeletedEntitiesToStorage();
+    }
+
     const existingIndex = this.queue.findIndex(
       (q) => q.entityId === entityId && q.entityType === entityType && q.status === 'pending'
     );
 
     if (existingIndex >= 0) {
-      if (action === 'delete') {
-        if (this.queue[existingIndex].action === 'create') {
-          // It was created locally and deleted before ever reaching the cloud: cancel both!
-          const updated = [...this.queue];
-          updated.splice(existingIndex, 1);
-          this.queue = updated;
-          this.batchedWritesSaved += 2;
-          this.updateCachedStats();
-        } else {
-          // Replace pending update with delete
-          const updated = [...this.queue];
-          updated[existingIndex] = {
-            ...updated[existingIndex],
-            action: 'delete',
-            payload,
-            timestamp: new Date().toISOString()
-          };
-          this.queue = updated;
-        }
-      } else if (action === 'update') {
+      if (action === 'update') {
         const updatedQueue = [...this.queue];
         updatedQueue[existingIndex] = {
           ...updatedQueue[existingIndex],
@@ -321,7 +415,6 @@ class SyncManager {
           timestamp: new Date().toISOString(),
         };
         this.queue = updatedQueue;
-        // Increment saved write by merging!
         this.batchedWritesSaved += 1;
         this.updateCachedStats();
       }
