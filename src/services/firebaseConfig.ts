@@ -9,10 +9,24 @@ import {
   collection, 
   getDocs, 
   onSnapshot, 
+  writeBatch,
   Firestore, 
   serverTimestamp 
 } from 'firebase/firestore';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut as firebaseSignOut, Auth, User as FirebaseUser } from 'firebase/auth';
+import { 
+  getAuth, 
+  GoogleAuthProvider, 
+  signInWithPopup, 
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
+  setPersistence,
+  browserLocalPersistence,
+  onAuthStateChanged,
+  signOut as firebaseSignOut, 
+  Auth, 
+  User as FirebaseUser 
+} from 'firebase/auth';
 import { FirebaseProjectConfig } from '../types';
 
 const FIREBASE_CONFIG_STORAGE_KEY = 'asphaltpro_firebase_config';
@@ -241,6 +255,12 @@ export const getFirebaseAuth = (): Auth | null => {
   try {
     if (!authInstance) {
       authInstance = getAuth(app);
+      // Ativa persistência local persistente de sessão no navegador
+      if (typeof window !== 'undefined') {
+        setPersistence(authInstance, browserLocalPersistence).catch((err) => {
+          console.warn('[Firebase Auth] Persistência local de sessão:', err);
+        });
+      }
     }
     return authInstance;
   } catch (e) {
@@ -261,6 +281,32 @@ export const loginWithGooglePopup = async (): Promise<FirebaseUser> => {
   return result.user;
 };
 
+export const loginWithEmailPassword = async (email: string, pass: string): Promise<FirebaseUser> => {
+  const auth = getFirebaseAuth();
+  if (!auth) {
+    throw new Error('O Firebase não está configurado. Conecte o Project ID e API Key nas configurações de sincronização.');
+  }
+  const result = await signInWithEmailAndPassword(auth, email.trim(), pass);
+  return result.user;
+};
+
+export const registerWithEmailPassword = async (email: string, pass: string): Promise<FirebaseUser> => {
+  const auth = getFirebaseAuth();
+  if (!auth) {
+    throw new Error('O Firebase não está configurado. Conecte o Project ID e API Key nas configurações de sincronização.');
+  }
+  const result = await createUserWithEmailAndPassword(auth, email.trim(), pass);
+  return result.user;
+};
+
+export const sendResetPassword = async (email: string): Promise<void> => {
+  const auth = getFirebaseAuth();
+  if (!auth) {
+    throw new Error('O Firebase não está configurado. Conecte o Project ID e API Key nas configurações de sincronização.');
+  }
+  await sendPasswordResetEmail(auth, email.trim());
+};
+
 export const logoutFirebaseAuth = async (): Promise<void> => {
   try {
     const auth = getFirebaseAuth();
@@ -270,6 +316,12 @@ export const logoutFirebaseAuth = async (): Promise<void> => {
   } catch (e) {
     console.error('Erro ao encerrar sessão Firebase Auth:', e);
   }
+};
+
+export const subscribeToFirebaseAuthState = (callback: (user: FirebaseUser | null) => void): (() => void) | null => {
+  const auth = getFirebaseAuth();
+  if (!auth) return null;
+  return onAuthStateChanged(auth, callback);
 };
 
 export interface FirebaseConnectionTestResult {
@@ -418,9 +470,104 @@ export const fetchCollectionFromFirestore = async (collectionName: string): Prom
   }
 };
 
+export enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+export interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+    tenantId?: string | null;
+    providerInfo?: {
+      providerId?: string | null;
+      email?: string | null;
+    }[];
+  };
+}
+
+export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const auth = getFirebaseAuth();
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth?.currentUser?.uid,
+      email: auth?.currentUser?.email,
+      emailVerified: auth?.currentUser?.emailVerified,
+      isAnonymous: auth?.currentUser?.isAnonymous,
+      tenantId: auth?.currentUser?.tenantId,
+      providerInfo: auth?.currentUser?.providerData?.map(provider => ({
+        providerId: provider.providerId,
+        email: provider.email,
+      })) || []
+    },
+    operationType,
+    path
+  };
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  return errInfo;
+}
+
+/**
+ * Perform bulk mutations in atomic batches of up to 450 items per writeBatch
+ */
+export const syncBatchToFirestore = async (
+  operations: {
+    collectionName: string;
+    docId: string;
+    payload?: any;
+    action: 'create' | 'update' | 'delete';
+  }[]
+): Promise<number> => {
+  const db = getFirestoreDb();
+  if (!db || operations.length === 0) return 0;
+
+  const BATCH_SIZE = 450; // Margem de segurança abaixo do limite de 500 do Firestore
+  let successfulWrites = 0;
+
+  for (let i = 0; i < operations.length; i += BATCH_SIZE) {
+    const chunk = operations.slice(i, i + BATCH_SIZE);
+    const batch = writeBatch(db);
+
+    for (const op of chunk) {
+      const docRef = doc(db, op.collectionName, op.docId);
+      if (op.action === 'delete') {
+        batch.delete(docRef);
+      } else {
+        const sanitized = sanitizeForFirestore(op.payload || {});
+        batch.set(docRef, {
+          ...sanitized,
+          _syncedAt: serverTimestamp()
+        }, { merge: true });
+      }
+    }
+
+    try {
+      await batch.commit();
+      successfulWrites += chunk.length;
+    } catch (err) {
+      handleFirestoreError(err, OperationType.WRITE, 'batch_commit');
+      throw err;
+    }
+  }
+
+  return successfulWrites;
+};
+
 /**
  * Subscribes to real-time updates for a given Firestore collection.
  * Any creates, updates or DELETES from any device trigger this callback immediately.
+ * Utiliza { includeMetadataChanges: false } para evitar disparos desnecessários enquanto em cache local.
  */
 export const subscribeToFirestoreCollection = (
   collectionName: string,
@@ -434,6 +581,7 @@ export const subscribeToFirestoreCollection = (
     const colRef = collection(db, collectionName);
     const unsubscribe = onSnapshot(
       colRef,
+      { includeMetadataChanges: false },
       (snap) => {
         const items = snap.docs.map((d) => {
           const data = d.data();
@@ -445,12 +593,14 @@ export const subscribeToFirestoreCollection = (
         onData(items);
       },
       (err) => {
+        handleFirestoreError(err, OperationType.GET, collectionName);
         console.warn(`Aviso na escuta em tempo real da coleção "${collectionName}":`, err);
         if (onError) onError(err);
       }
     );
     return unsubscribe;
   } catch (err) {
+    handleFirestoreError(err, OperationType.GET, collectionName);
     console.error(`Erro ao assinar coleção em tempo real "${collectionName}":`, err);
     return null;
   }

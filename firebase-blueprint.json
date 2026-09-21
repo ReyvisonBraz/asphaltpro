@@ -1,0 +1,204 @@
+{
+  "entities": {
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Lançamento financeiro de entrada ou saída",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "data": { "type": "string", "maxLength": 32 },
+        "descricao": { "type": "string", "maxLength": 256 },
+        "categoria": { "type": "string", "maxLength": 128 },
+        "responsavel": { "type": "string", "maxLength": 128 },
+        "formaPagamento": { "type": "string", "maxLength": 64 },
+        "valor": { "type": "number" },
+        "tipo": { "type": "string", "enum": ["entrada", "saida"] },
+        "clienteFornecedor": { "type": "string", "maxLength": 256 },
+        "contaFinanceira": { "type": "string", "maxLength": 128 },
+        "observacao": { "type": "string", "maxLength": 1000 },
+        "origemContaId": { "type": "string", "maxLength": 128 },
+        "origemOrcamentoId": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "_version": { "type": "number" }
+      },
+      "required": ["id", "data", "descricao", "categoria", "valor", "tipo"]
+    },
+    "AccountItem": {
+      "title": "AccountItem",
+      "description": "Conta a pagar ou receber com parcelamento e vencimento",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "descricao": { "type": "string", "maxLength": 256 },
+        "fornecedorCliente": { "type": "string", "maxLength": 256 },
+        "parcela": { "type": "string", "maxLength": 32 },
+        "vencimento": { "type": "string", "maxLength": 32 },
+        "valor": { "type": "number" },
+        "status": { "type": "string", "enum": ["atrasado", "pendente", "pago"] },
+        "tipo": { "type": "string", "enum": ["pagar", "receber"] },
+        "categoria": { "type": "string", "maxLength": 128 },
+        "dataPagamento": { "type": "string", "maxLength": 32 },
+        "transacaoId": { "type": "string", "maxLength": 128 },
+        "_version": { "type": "number" }
+      },
+      "required": ["id", "descricao", "vencimento", "valor", "status", "tipo"]
+    },
+    "Quote": {
+      "title": "Quote",
+      "description": "Orçamento e proposta comercial técnica",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "numero": { "type": "string", "maxLength": 64 },
+        "dataEmissao": { "type": "string", "maxLength": 32 },
+        "dataValidade": { "type": "string", "maxLength": 32 },
+        "status": { "type": "string", "enum": ["rascunho", "enviado", "aprovado", "convertido", "recusado", "expirado"] },
+        "responsavelNome": { "type": "string", "maxLength": 128 },
+        "responsavelCargo": { "type": "string", "maxLength": 128 },
+        "subtotal": { "type": "number" },
+        "desconto": { "type": "number" },
+        "acrescimoFrete": { "type": "number" },
+        "valorTotal": { "type": "number" },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "_version": { "type": "number" }
+      },
+      "required": ["id", "numero", "status", "valorTotal"]
+    },
+    "BusinessPartner": {
+      "title": "BusinessPartner",
+      "description": "Cadastro de cliente ou fornecedor",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "nome": { "type": "string", "maxLength": 256 },
+        "nomeFantasia": { "type": "string", "maxLength": 256 },
+        "tipo": { "type": "string", "enum": ["cliente", "fornecedor", "ambos"] },
+        "documento": { "type": "string", "maxLength": 64 },
+        "contato": { "type": "string", "maxLength": 128 },
+        "telefone": { "type": "string", "maxLength": 64 },
+        "email": { "type": "string", "maxLength": 128 },
+        "cidadeUf": { "type": "string", "maxLength": 128 },
+        "status": { "type": "string", "enum": ["ativo", "inativo"] },
+        "_version": { "type": "number" }
+      },
+      "required": ["id", "nome", "tipo"]
+    },
+    "Employee": {
+      "title": "Employee",
+      "description": "Colaborador ou motorista da usina",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "nome": { "type": "string", "maxLength": 256 },
+        "cargo": { "type": "string", "maxLength": 128 },
+        "documento": { "type": "string", "maxLength": 64 },
+        "telefone": { "type": "string", "maxLength": 64 },
+        "isMotorista": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["ativo", "inativo"] },
+        "_version": { "type": "number" }
+      },
+      "required": ["id", "nome", "cargo", "status"]
+    },
+    "Category": {
+      "title": "Category",
+      "description": "Categoria de classificação contábil",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "nome": { "type": "string", "maxLength": 128 },
+        "tipo": { "type": "string", "enum": ["despesa", "receita"] },
+        "cor": { "type": "string", "maxLength": 32 },
+        "_version": { "type": "number" }
+      },
+      "required": ["id", "nome", "tipo"]
+    },
+    "BankAccount": {
+      "title": "BankAccount",
+      "description": "Conta bancária ou caixa de usina",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "nome": { "type": "string", "maxLength": 128 },
+        "banco": { "type": "string", "maxLength": 128 },
+        "saldo": { "type": "number" },
+        "agenciaConta": { "type": "string", "maxLength": 64 },
+        "_version": { "type": "number" }
+      },
+      "required": ["id", "nome", "banco", "saldo"]
+    },
+    "Settings": {
+      "title": "Settings",
+      "description": "Configurações gerais e papel timbrado",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "nomeEmpresa": { "type": "string", "maxLength": 256 },
+        "cnpj": { "type": "string", "maxLength": 64 },
+        "enderecoUsina": { "type": "string", "maxLength": 256 },
+        "telefone": { "type": "string", "maxLength": 64 },
+        "emailComercial": { "type": "string", "maxLength": 128 },
+        "_version": { "type": "number" }
+      },
+      "required": ["id", "nomeEmpresa"]
+    },
+    "SystemUser": {
+      "title": "SystemUser",
+      "description": "Usuário do sistema com perfil de acesso e credenciais",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 128 },
+        "role": { "type": "string", "enum": ["admin", "financeiro", "comercial", "operador"] },
+        "roleTitle": { "type": "string", "maxLength": 128 },
+        "department": { "type": "string", "maxLength": 128 },
+        "status": { "type": "string", "enum": ["ativo", "inativo"] },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "_version": { "type": "number" }
+      },
+      "required": ["id", "name", "email", "role", "status"]
+    }
+  },
+  "firestore": {
+    "/transactions/{transactionId}": {
+      "schema": "Transaction",
+      "description": "Lançamentos financeiros de entrada e saída"
+    },
+    "/accounts/{accountId}": {
+      "schema": "AccountItem",
+      "description": "Contas a pagar e receber"
+    },
+    "/quotes/{quoteId}": {
+      "schema": "Quote",
+      "description": "Orçamentos e propostas comerciais"
+    },
+    "/partners/{partnerId}": {
+      "schema": "BusinessPartner",
+      "description": "Clientes e fornecedores cadastrados"
+    },
+    "/employees/{employeeId}": {
+      "schema": "Employee",
+      "description": "Funcionários e motoristas"
+    },
+    "/categories/{categoryId}": {
+      "schema": "Category",
+      "description": "Categorias contábeis"
+    },
+    "/bankAccounts/{bankAccountId}": {
+      "schema": "BankAccount",
+      "description": "Contas bancárias e caixas"
+    },
+    "/settings/{settingId}": {
+      "schema": "Settings",
+      "description": "Configurações da usina e papel timbrado"
+    },
+    "/users/{userId}": {
+      "schema": "SystemUser",
+      "description": "Perfis e permissões de usuários"
+    },
+    "/_system_sync/{syncId}": {
+      "schema": "Settings",
+      "description": "Heartbeat e testes de sincronização do sistema"
+    }
+  }
+}

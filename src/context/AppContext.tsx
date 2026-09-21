@@ -2,7 +2,17 @@ import React, { createContext, useContext, useState, useEffect, useRef } from 'r
 import { syncManager } from '../services/syncManager';
 import { errorDiagnosticsService } from '../services/errorDiagnosticsService';
 import { securityRateLimitService } from '../services/securityRateLimitService';
-import { logoutFirebaseAuth, getSavedFirebaseConfig, fetchCollectionFromFirestore, subscribeToFirestoreCollection, syncDocToFirestore } from '../services/firebaseConfig';
+import { 
+  logoutFirebaseAuth, 
+  getSavedFirebaseConfig, 
+  fetchCollectionFromFirestore, 
+  subscribeToFirestoreCollection, 
+  syncDocToFirestore,
+  loginWithEmailPassword,
+  registerWithEmailPassword,
+  sendResetPassword,
+  subscribeToFirebaseAuthState
+} from '../services/firebaseConfig';
 import { broadcastEntityMutation, subscribeCrossTabSync } from '../services/crossTabSync';
 import { parseAnyDateToTimestamp } from '../utils/formatters';
 import {
@@ -63,6 +73,9 @@ interface AppContextType {
   switchUser: (userId: string) => void;
   login: (email: string, pass: string) => { success: boolean; message: string; isLocked?: boolean; remainingSeconds?: number };
   loginWithGoogleUser: (googleUser: { displayName?: string | null; email?: string | null; photoURL?: string | null; uid?: string }) => boolean;
+  loginWithFirebaseEmail: (email: string, pass: string) => Promise<{ success: boolean; message: string }>;
+  registerWithFirebaseEmail: (name: string, email: string, pass: string) => Promise<{ success: boolean; message: string }>;
+  sendPasswordReset: (email: string) => Promise<{ success: boolean; message: string }>;
   logout: () => void;
   currentView: ViewMode;
   setCurrentView: (view: ViewMode) => void;
@@ -1141,6 +1154,191 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     syncManager.addLog(`Tentativa de acesso via Google não autorizada: ${userEmail}`, 'warning');
     return false;
   };
+
+  const loginWithFirebaseEmail = async (email: string, pass: string): Promise<{ success: boolean; message: string }> => {
+    try {
+      const fbUser = await loginWithEmailPassword(email, pass);
+      if (!fbUser) {
+        return { success: false, message: 'Falha ao autenticar com Firebase Auth.' };
+      }
+      const userEmail = (fbUser.email || email).trim().toLowerCase();
+      const userName = fbUser.displayName || userEmail.split('@')[0];
+      const userAvatar = fbUser.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(userName)}&background=835400&color=fff`;
+
+      // Match systemUser by email or UID
+      const matchedUser = systemUsers.find(u => u.email.toLowerCase() === userEmail || u.id === fbUser.uid);
+
+      if (matchedUser) {
+        if (matchedUser.status === 'inativo') {
+          await logoutFirebaseAuth();
+          return { success: false, message: 'Esta conta de usuário foi inativada pelo Administrador.' };
+        }
+        securityRateLimitService.resetRateLimit(userEmail);
+        securityRateLimitService.resetRateLimit('global');
+
+        const updatedProfile: UserProfile = {
+          id: matchedUser.id,
+          name: matchedUser.name,
+          role: matchedUser.roleTitle,
+          userRole: matchedUser.role,
+          email: matchedUser.email,
+          avatarUrl: userAvatar || matchedUser.avatarUrl,
+          status: 'Active'
+        };
+        setUser(updatedProfile);
+        setIsAuthenticated(true);
+        showToast(`Bem-vindo(a), ${matchedUser.name}! [Perfil: ${matchedUser.roleTitle}]`, 'success');
+        syncManager.addLog(`Login via Firebase Auth efetuado por ${matchedUser.name} (${matchedUser.email})`, 'info');
+        return { success: true, message: 'Login realizado com sucesso.' };
+      }
+
+      // Check if Master Owner or first user
+      const isMasterEmail = userEmail === 'littlefigther50@gmail.com' || systemUsers.length === 0;
+      const role: UserRole = isMasterEmail ? 'admin' : 'operador';
+      const roleTitle = isMasterEmail ? 'Diretor de Operações (Admin Geral)' : 'Operador de Balança';
+
+      const newSystemUser: SystemUser = {
+        id: fbUser.uid,
+        name: userName,
+        email: userEmail,
+        role,
+        roleTitle,
+        department: isMasterEmail ? 'Diretoria / Gestão' : 'Usina & Operações',
+        avatarUrl: userAvatar,
+        status: 'ativo',
+        createdAt: new Date().toISOString(),
+        lastLogin: new Date().toISOString(),
+        offlinePassword: pass
+      };
+
+      setSystemUsers((prev) => [newSystemUser, ...prev]);
+      syncManager.enqueue('user', 'create', newSystemUser.id, newSystemUser);
+
+      const profile: UserProfile = {
+        id: newSystemUser.id,
+        name: userName,
+        role: roleTitle,
+        userRole: role,
+        email: userEmail,
+        avatarUrl: userAvatar,
+        status: 'Active'
+      };
+      setUser(profile);
+      setIsAuthenticated(true);
+      showToast(`Bem-vindo(a), ${userName}! Perfil conectado ao Firebase.`, 'success');
+      syncManager.addLog(`Novo usuário registrado via Firebase Auth: ${userEmail}`, 'info');
+      return { success: true, message: 'Usuário autenticado com sucesso.' };
+    } catch (err: any) {
+      console.error('Erro no login com Firebase Email:', err);
+      let errMsg = err?.message || 'Erro ao autenticar com Firebase.';
+      if (err?.code === 'auth/user-not-found' || err?.code === 'auth/wrong-password' || err?.code === 'auth/invalid-credential') {
+        errMsg = 'E-mail ou senha incorretos no Firebase Auth.';
+      } else if (err?.code === 'auth/too-many-requests') {
+        errMsg = 'Muitas tentativas sem sucesso. Aguarde alguns instantes.';
+      }
+      return { success: false, message: errMsg };
+    }
+  };
+
+  const registerWithFirebaseEmail = async (name: string, email: string, pass: string): Promise<{ success: boolean; message: string }> => {
+    try {
+      const fbUser = await registerWithEmailPassword(email, pass);
+      if (!fbUser) {
+        return { success: false, message: 'Falha ao criar usuário no Firebase Auth.' };
+      }
+      const userEmail = (fbUser.email || email).trim().toLowerCase();
+      const userName = name.trim() || fbUser.displayName || userEmail.split('@')[0];
+      const userAvatar = fbUser.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(userName)}&background=835400&color=fff`;
+
+      const isMasterEmail = userEmail === 'littlefigther50@gmail.com' || systemUsers.length === 0;
+      const role: UserRole = isMasterEmail ? 'admin' : 'operador';
+      const roleTitle = isMasterEmail ? 'Diretor de Operações (Admin Geral)' : 'Operador de Balança';
+
+      const newSystemUser: SystemUser = {
+        id: fbUser.uid,
+        name: userName,
+        email: userEmail,
+        role,
+        roleTitle,
+        department: isMasterEmail ? 'Diretoria / Gestão' : 'Usina & Operações',
+        avatarUrl: userAvatar,
+        status: 'ativo',
+        createdAt: new Date().toISOString(),
+        lastLogin: new Date().toISOString(),
+        offlinePassword: pass
+      };
+
+      setSystemUsers((prev) => [newSystemUser, ...prev]);
+      syncManager.enqueue('user', 'create', newSystemUser.id, newSystemUser);
+
+      const profile: UserProfile = {
+        id: newSystemUser.id,
+        name: userName,
+        role: roleTitle,
+        userRole: role,
+        email: userEmail,
+        avatarUrl: userAvatar,
+        status: 'Active'
+      };
+      setUser(profile);
+      setIsAuthenticated(true);
+      showToast(`Conta criada com sucesso! Bem-vindo(a), ${userName}!`, 'success');
+      syncManager.addLog(`Nova conta criada no Firebase Auth: ${userName} (${userEmail})`, 'info');
+      return { success: true, message: 'Conta criada e autenticada com sucesso!' };
+    } catch (err: any) {
+      console.error('Erro ao registrar usuário no Firebase:', err);
+      let errMsg = err?.message || 'Erro ao registrar conta no Firebase.';
+      if (err?.code === 'auth/email-already-in-use') {
+        errMsg = 'Este e-mail já está cadastrado no Firebase Auth. Faça login diretamente.';
+      } else if (err?.code === 'auth/weak-password') {
+        errMsg = 'A senha informada é fraca. Crie uma senha com pelo menos 6 dígitos.';
+      } else if (err?.code === 'auth/invalid-email') {
+        errMsg = 'E-mail informado é inválido.';
+      }
+      return { success: false, message: errMsg };
+    }
+  };
+
+  const sendPasswordReset = async (email: string): Promise<{ success: boolean; message: string }> => {
+    try {
+      await sendResetPassword(email);
+      showToast(`E-mail de recuperação enviado para ${email}. Verifique sua caixa de entrada e spam.`, 'success');
+      return { success: true, message: 'E-mail de redefinição enviado com sucesso.' };
+    } catch (err: any) {
+      console.error('Erro ao enviar recuperação de senha:', err);
+      let errMsg = err?.message || 'Erro ao enviar e-mail de recuperação.';
+      if (err?.code === 'auth/user-not-found') {
+        errMsg = 'Nenhum usuário encontrado com este e-mail no Firebase.';
+      }
+      return { success: false, message: errMsg };
+    }
+  };
+
+  // Restauração contínua de sessão Firebase Auth em recarregamento
+  useEffect(() => {
+    const unsub = subscribeToFirebaseAuthState((fbUser) => {
+      if (fbUser && fbUser.email) {
+        const uEmail = fbUser.email.toLowerCase();
+        const matched = systemUsers.find(u => u.email.toLowerCase() === uEmail || u.id === fbUser.uid);
+        if (matched && matched.status === 'ativo') {
+          setUser({
+            id: matched.id,
+            name: matched.name,
+            role: matched.roleTitle,
+            userRole: matched.role,
+            email: matched.email,
+            avatarUrl: matched.avatarUrl,
+            status: 'Active'
+          });
+          setIsAuthenticated(true);
+        }
+      }
+    });
+
+    return () => {
+      if (unsub) unsub();
+    };
+  }, [systemUsers]);
 
   const logout = () => {
     logoutFirebaseAuth().catch(() => {});
@@ -2665,6 +2863,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         deleteSystemUser,
         login,
         loginWithGoogleUser,
+        loginWithFirebaseEmail,
+        registerWithFirebaseEmail,
+        sendPasswordReset,
         logout,
         currentView,
         setCurrentView,

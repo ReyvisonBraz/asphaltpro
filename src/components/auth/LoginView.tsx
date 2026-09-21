@@ -6,8 +6,26 @@ import { securityRateLimitService } from '../../services/securityRateLimitServic
 import { syncManager } from '../../services/syncManager';
 
 export const LoginView: React.FC = () => {
-  const { login, loginWithGoogleUser, showToast, pullFromCloud } = useApp();
+  const { 
+    login, 
+    loginWithGoogleUser, 
+    loginWithFirebaseEmail, 
+    registerWithFirebaseEmail, 
+    sendPasswordReset, 
+    showToast, 
+    pullFromCloud 
+  } = useApp();
   
+  // Auth Tab Mode: 'login' or 'register'
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+
+  // Registration Fields
+  const [registerName, setRegisterName] = useState('');
+  const [registerEmail, setRegisterEmail] = useState('');
+  const [registerPassword, setRegisterPassword] = useState('');
+  const [registerConfirmPassword, setRegisterConfirmPassword] = useState('');
+  const [isLoadingRegister, setIsLoadingRegister] = useState(false);
+
   // Safe credential state (no exposed defaults)
   const [email, setEmail] = useState(() => {
     try {
@@ -96,7 +114,7 @@ export const LoginView: React.FC = () => {
     };
   }, []);
 
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isLocked) {
       showToast(`Acesso temporariamente bloqueado. Aguarde ${lockoutSeconds}s.`, 'error');
@@ -111,6 +129,25 @@ export const LoginView: React.FC = () => {
     setIsLoadingOffline(true);
     setFailedMessage(null);
 
+    // 1. If online and Firebase is configured, try Firebase Auth first
+    if (isOnline && isFirebaseActive) {
+      try {
+        const fbRes = await loginWithFirebaseEmail(email, password);
+        if (fbRes.success) {
+          setIsLoadingOffline(false);
+          if (rememberMe) {
+            try {
+              localStorage.setItem('asphalt_remembered_email', email.trim());
+            } catch {}
+          }
+          return;
+        }
+      } catch {
+        // Fallback to local offline login
+      }
+    }
+
+    // 2. Local / Offline authentication fallback
     setTimeout(() => {
       const res = login(email, password);
       setIsLoadingOffline(false);
@@ -135,6 +172,49 @@ export const LoginView: React.FC = () => {
         }
       }
     }, 250);
+  };
+
+  const handleRegisterSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!registerName.trim() || !registerEmail.trim() || !registerPassword.trim()) {
+      showToast('Preencha todos os campos para criar a conta.', 'info');
+      return;
+    }
+
+    if (registerPassword.length < 6) {
+      showToast('A senha precisa ter pelo menos 6 caracteres.', 'info');
+      return;
+    }
+
+    if (registerPassword !== registerConfirmPassword) {
+      showToast('As senhas digitadas não coincidem.', 'error');
+      return;
+    }
+
+    setIsLoadingRegister(true);
+    try {
+      const res = await registerWithFirebaseEmail(registerName, registerEmail, registerPassword);
+      if (!res.success) {
+        showToast(res.message, 'error');
+      }
+    } finally {
+      setIsLoadingRegister(false);
+    }
+  };
+
+  const handleForgotSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!forgotEmail.trim()) {
+      showToast('Informe o e-mail cadastrado.', 'info');
+      return;
+    }
+
+    if (isOnline && isFirebaseActive) {
+      await sendPasswordReset(forgotEmail.trim());
+      setForgotSent(true);
+    } else {
+      setForgotSent(true);
+    }
   };
 
   const handleGoogleLogin = async () => {
@@ -215,11 +295,6 @@ export const LoginView: React.FC = () => {
         }
       }
     }, 200);
-  };
-
-  const handleForgotSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setForgotSent(true);
   };
 
   const handleConnectFirebase = async (e: React.FormEvent) => {
@@ -306,8 +381,116 @@ export const LoginView: React.FC = () => {
 
         {/* Content Container */}
         <div className="p-6 sm:p-7 space-y-5">
-          {/* SECTION 1: GOOGLE ONLINE SIGN-IN */}
-          <div className="space-y-2">
+          {/* Auth Mode Toggle Tabs */}
+          <div className="flex p-1 bg-gray-100 rounded-xl">
+            <button
+              type="button"
+              onClick={() => {
+                setAuthMode('login');
+                setFailedMessage(null);
+              }}
+              className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                authMode === 'login'
+                  ? 'bg-white text-gray-900 shadow-xs'
+                  : 'text-gray-500 hover:text-gray-900'
+              }`}
+            >
+              <span className="material-symbols-outlined text-[16px]">login</span>
+              Acessar Sistema
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setAuthMode('register');
+                setFailedMessage(null);
+              }}
+              className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                authMode === 'register'
+                  ? 'bg-white text-[#835400] shadow-xs'
+                  : 'text-gray-500 hover:text-gray-900'
+              }`}
+            >
+              <span className="material-symbols-outlined text-[16px]">person_add</span>
+              Criar Nova Conta
+            </button>
+          </div>
+
+          {authMode === 'register' ? (
+            <form onSubmit={handleRegisterSubmit} className="space-y-3.5">
+              <div className="flex items-center justify-between text-[11px] text-gray-500">
+                <span className="font-semibold flex items-center gap-1 text-[#835400]">
+                  <span className="material-symbols-outlined text-[15px]">badge</span>
+                  Cadastro de Novo Colaborador
+                </span>
+                <span className="text-[10px] text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                  {isFirebaseActive ? 'Firebase Auth Ativo' : 'Acesso Local'}
+                </span>
+              </div>
+
+              <Input
+                label="Nome Completo"
+                type="text"
+                required
+                value={registerName}
+                onChange={(e) => setRegisterName(e.target.value)}
+                placeholder="Ex: João da Silva"
+                leftIcon="person"
+              />
+
+              <Input
+                label="E-mail Corporativo"
+                type="email"
+                required
+                value={registerEmail}
+                onChange={(e) => setRegisterEmail(e.target.value)}
+                placeholder="joao@empresa.com.br"
+                leftIcon="mail"
+              />
+
+              <Input
+                label="Criar Senha de Acesso (Mínimo 6 dígitos)"
+                type={showPassword ? 'text' : 'password'}
+                required
+                value={registerPassword}
+                onChange={(e) => setRegisterPassword(e.target.value)}
+                placeholder="Crie uma senha segura"
+                leftIcon="lock"
+                rightIcon={showPassword ? 'visibility_off' : 'visibility'}
+                onRightIconClick={() => setShowPassword(!showPassword)}
+              />
+
+              <Input
+                label="Confirmar Senha"
+                type={showPassword ? 'text' : 'password'}
+                required
+                value={registerConfirmPassword}
+                onChange={(e) => setRegisterConfirmPassword(e.target.value)}
+                placeholder="Repita sua senha"
+                leftIcon="lock_reset"
+              />
+
+              <Button
+                type="submit"
+                variant="primary"
+                size="md"
+                fullWidth
+                isLoading={isLoadingRegister}
+                icon="how_to_reg"
+              >
+                Criar Conta & Acessar Usina
+              </Button>
+
+              <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-xl text-[11px] text-amber-900 space-y-1">
+                <span className="font-bold block">Controle de Níveis e Permissões:</span>
+                <p className="text-gray-600 leading-snug">
+                  O primeiro e-mail ou o e-mail Master configurado assume perfil de <strong>Administrador Geral</strong>. Novos colaboradores são provisionados com acesso inicial padrão seguro e podem ter seus perfis promovidos pelo Diretor em <em>Configurações &gt; Usuários</em>.
+                </p>
+              </div>
+            </form>
+          ) : (
+            <>
+              {/* SECTION 1: GOOGLE ONLINE SIGN-IN */}
+              <div className="space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-black uppercase tracking-wider text-gray-500">
                 Acesso Online Corporativo
@@ -568,7 +751,11 @@ export const LoginView: React.FC = () => {
               isLoading={isLoadingOffline}
               icon={isLocked ? 'lock' : 'login'}
             >
-              {isLocked ? `Bloqueado (${lockoutSeconds}s)` : 'Entrar no Modo Offline'}
+              {isLocked
+                ? `Bloqueado (${lockoutSeconds}s)`
+                : isOnline && isFirebaseActive
+                ? 'Entrar com E-mail & Senha'
+                : 'Entrar no Modo Offline'}
             </Button>
           </form>
 
@@ -631,6 +818,8 @@ export const LoginView: React.FC = () => {
               </button>
             </div>
           </div>
+        </>
+      )}
 
           {/* Security Information Footer */}
           <div className="pt-2 flex items-center justify-center gap-1.5 text-[10px] text-gray-400 text-center">
@@ -690,13 +879,23 @@ export const LoginView: React.FC = () => {
           }
         >
           {forgotSent ? (
-            <div className="p-4 bg-emerald-50 rounded-xl border border-emerald-200 text-xs text-emerald-900 leading-relaxed">
-              Solicitação registrada. Se o e-mail <strong>{forgotEmail || email}</strong> estiver cadastrado na equipe, o Administrador Geral poderá redefinir sua senha offline em <strong>Configurações &gt; Usuários &amp; Permissões</strong>.
+            <div className="p-4 bg-emerald-50 rounded-xl border border-emerald-200 text-xs text-emerald-900 leading-relaxed space-y-1.5">
+              <div className="font-bold flex items-center gap-1.5 text-emerald-950">
+                <span className="material-symbols-outlined text-emerald-600 text-[18px]">mark_email_read</span>
+                {isFirebaseActive ? 'Link de Redefinição Enviado!' : 'Solicitação Registrada com Sucesso!'}
+              </div>
+              <p>
+                {isFirebaseActive
+                  ? `Se o e-mail "${forgotEmail || email}" estiver cadastrado no Firebase Auth, você receberá um link com instruções para redefinir sua senha com segurança.`
+                  : `Se o e-mail "${forgotEmail || email}" for da equipe local, o Administrador Geral poderá emitir uma nova senha em Configurações > Usuários & Permissões.`}
+              </p>
             </div>
           ) : (
             <form onSubmit={handleForgotSubmit} className="space-y-3">
               <p className="text-xs text-gray-600 leading-relaxed">
-                Por segurança operacional da usina, a redefinição de senhas offline é gerenciada pela Diretoria/Administração em Configurações.
+                {isFirebaseActive
+                  ? 'Informe seu e-mail corporativo cadastrado para receber um link de redefinição de senha direto do Firebase Auth.'
+                  : 'Por segurança operacional da usina, a redefinição de senhas offline pode ser auxiliada pela Diretoria/Administração em Configurações.'}
               </p>
               <Input
                 label="E-mail Cadastrado"

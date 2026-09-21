@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useSyncExternalStore } from 'react';
 import { useApp } from '../../context/AppContext';
 import { QuoteCatalogItem } from '../../types';
 import { ConfirmModal } from '../common/ConfirmModal';
 import { catalogItemFormSchema, validateForm } from '../../schemas/validationSchemas';
+import { syncManager } from '../../services/syncManager';
 
 interface CatalogoItensDrawerProps {
   isOpen: boolean;
@@ -16,6 +17,11 @@ export const CatalogoItensDrawer: React.FC<CatalogoItensDrawerProps> = ({
   onSelectItem
 }) => {
   const { quoteCatalog, addCatalogItem, updateCatalogItem, deleteCatalogItem, showToast } = useApp();
+
+  const networkState = useSyncExternalStore(
+    (cb) => syncManager.subscribe(cb),
+    () => syncManager.getNetworkState()
+  );
 
   const [searchTerm, setSearchTerm] = useState('');
   const [filterModalidade, setFilterModalidade] = useState<string>('todos');
@@ -148,6 +154,24 @@ export const CatalogoItensDrawer: React.FC<CatalogoItensDrawerProps> = ({
 
           {/* Body */}
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            {/* Offline Status Badge */}
+            {networkState === 'offline' && (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3.5 flex items-center justify-between gap-3 text-xs text-amber-900">
+                <div className="flex items-center gap-2.5">
+                  <span className="material-symbols-outlined text-[18px] text-amber-700">cloud_off</span>
+                  <div>
+                    <p className="font-bold">Catálogo Disponível Offline</p>
+                    <p className="text-[11px] text-amber-800">
+                      Todos os itens e tabelas de preço estão carregados no cache local para uso sem internet.
+                    </p>
+                  </div>
+                </div>
+                <span className="px-2 py-0.5 rounded-md font-bold bg-amber-200 text-amber-900 text-[10px] shrink-0">
+                  Cache Local
+                </span>
+              </div>
+            )}
+
             {/* Create/Edit Form */}
             {isCreating ? (
               <form onSubmit={handleSaveItem} className="bg-[#F8F9FA] p-5 rounded-xl border border-[#DEE2E6] space-y-4">

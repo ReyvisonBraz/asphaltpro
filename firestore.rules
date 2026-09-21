@@ -1,0 +1,140 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // =========================================================================
+    // CONFIGURAÇÃO DE SEGURANÇA ZERO-TRUST (ASPHALTPRO ERP)
+    // =========================================================================
+
+    // Global Safety Net: Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper Primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Verificação de Administrador Geral:
+    // 1. E-mail mestre configurado no Firebase (você pode alterar para o e-mail da sua conta do Firebase)
+    // 2. OU usuário registrado no Firestore com role == 'admin' e status == 'ativo'
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'littlefigther50@gmail.com' ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.status == 'ativo')
+      );
+    }
+
+    // System Sync Heartbeat (Anti-Abuse ping check com custo de 1 única operação)
+    match /_system_sync/{syncId} {
+      allow read, write: if isValidId(syncId);
+    }
+
+    // Transactions Collection (Lançamentos Financeiros de Entrada e Saída)
+    match /transactions/{transactionId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && isValidId(transactionId) &&
+        incoming().descricao is string && incoming().descricao.size() <= 256 &&
+        incoming().valor is number &&
+        (incoming().tipo == 'entrada' || incoming().tipo == 'saida');
+      allow delete: if isSignedIn();
+    }
+
+    // Accounts Payable & Receivable (Contas a Pagar e Receber)
+    match /accounts/{accountId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && isValidId(accountId) &&
+        incoming().descricao is string && incoming().descricao.size() <= 256 &&
+        incoming().valor is number &&
+        (incoming().tipo == 'pagar' || incoming().tipo == 'receber');
+      allow delete: if isSignedIn();
+    }
+
+    // Quotes / Commercial Proposals (Orçamentos e Propostas Técnicas de CBUQ)
+    match /quotes/{quoteId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && isValidId(quoteId) &&
+        incoming().numero is string && incoming().numero.size() <= 64 &&
+        incoming().valorTotal is number;
+      allow delete: if isSignedIn();
+    }
+
+    // Business Partners (Clientes e Fornecedores)
+    match /partners/{partnerId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && isValidId(partnerId) &&
+        incoming().nome is string && incoming().nome.size() <= 256 &&
+        (incoming().tipo == 'cliente' || incoming().tipo == 'fornecedor' || incoming().tipo == 'ambos');
+      allow delete: if isSignedIn();
+    }
+
+    // Employees / Colaboradores e Motoristas
+    match /employees/{employeeId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && isValidId(employeeId) &&
+        incoming().nome is string && incoming().nome.size() <= 256 &&
+        incoming().cargo is string;
+      allow delete: if isSignedIn();
+    }
+
+    // Categories (Categorias Contábeis de Receita e Despesa)
+    match /categories/{categoryId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && isValidId(categoryId) &&
+        incoming().nome is string && incoming().nome.size() <= 128 &&
+        (incoming().tipo == 'despesa' || incoming().tipo == 'receita');
+      allow delete: if isSignedIn();
+    }
+
+    // Bank Accounts & Caixas de Usina
+    match /bankAccounts/{bankAccountId} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn() && isValidId(bankAccountId) &&
+        incoming().nome is string && incoming().nome.size() <= 128 &&
+        incoming().saldo is number;
+      allow delete: if isSignedIn();
+    }
+
+    // General Plant Settings & Letterhead (Configurações Gerais e Timbrado A4)
+    match /settings/{settingId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isSignedIn() && isValidId(settingId);
+    }
+
+    // System Users & Role Authorization (Gestão de Usuários e Níveis de Acesso)
+    match /users/{userId} {
+      // Qualquer usuário autenticado pode ler a lista de usuários para conferir perfil
+      allow read: if isSignedIn();
+      
+      // Administrador tem controle total de criação, alteração de permissão e exclusão
+      allow write: if isAdmin();
+      
+      // Auto-cadastro de novo usuário ao logar pela primeira vez (com validação de integridade)
+      allow create: if isSignedIn() && request.auth.uid == userId &&
+        incoming().name is string && incoming().name.size() <= 128 &&
+        incoming().email is string && incoming().email.size() <= 128;
+      
+      // Auto-atualização de perfil próprio: não permite auto-promoção para 'admin' nem auto-ativação
+      allow update: if isSignedIn() && request.auth.uid == userId &&
+        incoming().name is string && incoming().name.size() <= 128 &&
+        incoming().email is string && incoming().email.size() <= 128 &&
+        incoming().role == existing().role &&
+        incoming().status == existing().status;
+    }
+  }
+}

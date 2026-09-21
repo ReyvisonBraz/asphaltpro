@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useSyncExternalStore } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Quote, QuoteStatus } from '../../types';
 import { Button } from '../common/Button';
@@ -10,10 +10,12 @@ import { NovoOrcamentoModal } from './NovoOrcamentoModal';
 import { OrcamentoA4VisualizerModal } from './OrcamentoA4VisualizerModal';
 import { ConverterOrcamentoModal } from './ConverterOrcamentoModal';
 import { CatalogoItensDrawer } from './CatalogoItensDrawer';
+import { syncManager } from '../../services/syncManager';
 
 export const OrcamentosView: React.FC = () => {
   const {
     quotes,
+    quoteCatalog,
     deleteQuote,
     duplicateQuote,
     updateQuoteStatus,
@@ -27,6 +29,11 @@ export const OrcamentosView: React.FC = () => {
     setConvertingQuote,
     setCurrentView
   } = useApp();
+
+  const networkState = useSyncExternalStore(
+    (cb) => syncManager.subscribe(cb),
+    () => syncManager.getNetworkState()
+  );
 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<string>('todos');
@@ -124,13 +131,13 @@ export const OrcamentosView: React.FC = () => {
     <div className="flex-1 p-4 sm:p-6 lg:p-8 max-w-[1440px] mx-auto w-full flex flex-col gap-6 animate-in fade-in duration-200">
       
       {/* Top Header & Structured Action Bar */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-[#DEE2E6] shadow-xs">
-        <div className="space-y-1">
+      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-[#DEE2E6] shadow-xs">
+        <div className="space-y-1 min-w-0">
           <div className="flex items-center gap-2.5 flex-wrap">
             <h1 className="text-xl sm:text-2xl font-bold text-[#010102] tracking-tight">
               Orçamentos & Propostas Comerciais
             </h1>
-            <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-[#835400] border border-amber-200">
+            <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-[#835400] border border-amber-200 shrink-0">
               {quotes.length} {quotes.length === 1 ? 'proposta' : 'propostas'}
             </span>
           </div>
@@ -140,16 +147,16 @@ export const OrcamentosView: React.FC = () => {
         </div>
 
         {/* Action Group with clear visual hierarchy */}
-        <div className="flex items-center gap-2.5 flex-wrap sm:flex-nowrap">
+        <div className="flex items-center gap-2 sm:gap-2.5 flex-wrap shrink-0">
           {/* Export CSV */}
           <button
             type="button"
             onClick={() => exportQuotesCsv(filteredQuotes)}
             title="Exportar cotações filtradas em formato CSV"
-            className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-gray-700 bg-gray-100 hover:bg-gray-200 border border-gray-200 transition-colors cursor-pointer shrink-0 shadow-2xs"
+            className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-gray-700 bg-gray-100 hover:bg-gray-200 border border-gray-200 transition-colors cursor-pointer shrink-0 shadow-2xs whitespace-nowrap"
           >
             <span className="material-symbols-outlined text-[18px]">download</span>
-            <span className="hidden sm:inline">Exportar CSV</span>
+            <span>Exportar CSV</span>
           </button>
 
           {/* Catalog Drawer Trigger */}
@@ -157,7 +164,7 @@ export const OrcamentosView: React.FC = () => {
             type="button"
             onClick={() => setIsCatalogOpen(true)}
             title="Gerenciar catálogo de produtos, serviços e tabelas de preço"
-            className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-gray-700 bg-gray-100 hover:bg-gray-200 border border-gray-200 transition-colors cursor-pointer shrink-0 shadow-2xs"
+            className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-gray-700 bg-gray-100 hover:bg-gray-200 border border-gray-200 transition-colors cursor-pointer shrink-0 shadow-2xs whitespace-nowrap"
           >
             <span className="material-symbols-outlined text-[18px] text-[#835400]">inventory_2</span>
             <span>Catálogo</span>
@@ -168,10 +175,10 @@ export const OrcamentosView: React.FC = () => {
             type="button"
             onClick={() => setCurrentView('configuracoes')}
             title="Configurar logotipo, rodapé e dados do papel timbrado A4"
-            className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-gray-700 bg-gray-100 hover:bg-gray-200 border border-gray-200 transition-colors cursor-pointer shrink-0 shadow-2xs"
+            className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-gray-700 bg-gray-100 hover:bg-gray-200 border border-gray-200 transition-colors cursor-pointer shrink-0 shadow-2xs whitespace-nowrap"
           >
             <span className="material-symbols-outlined text-[18px]">article</span>
-            <span className="hidden md:inline">Papel Timbrado</span>
+            <span>Papel Timbrado</span>
           </button>
 
           {/* New Quote Primary CTA */}
@@ -181,13 +188,45 @@ export const OrcamentosView: React.FC = () => {
               setEditingQuote(null);
               setIsNovoOrcamentoOpen(true);
             }}
-            className="flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold text-white bg-[#835400] hover:bg-[#6b4400] shadow-sm hover:shadow transition-all cursor-pointer shrink-0 active:scale-98"
+            className="flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold text-white bg-[#835400] hover:bg-[#6b4400] shadow-sm hover:shadow transition-all cursor-pointer shrink-0 active:scale-98 whitespace-nowrap"
           >
             <span className="material-symbols-outlined text-[20px]">add_circle</span>
             <span>Novo Orçamento</span>
           </button>
         </div>
       </div>
+
+      {/* Offline Mode Banner for Quotes & Price Catalog */}
+      {networkState === 'offline' && (
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-900 flex items-center justify-center shrink-0">
+              <span className="material-symbols-outlined text-[20px]">cloud_off</span>
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-amber-900 uppercase tracking-wider">
+                  Modo Offline Ativo (Service Worker & Cache Local)
+                </span>
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-200 text-amber-900">
+                  Totalmente Operacional
+                </span>
+              </div>
+              <p className="text-xs text-amber-800/90 mt-0.5">
+                Você pode consultar todas as <strong>{quotes.length}</strong> propostas anteriores, emitir relatórios/A4, simular preços e acessar os <strong>{quoteCatalog.length}</strong> itens do catálogo sem internet. As edições serão sincronizadas automaticamente assim que o sinal for restabelecido.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsCatalogOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white transition-colors cursor-pointer shrink-0 shadow-2xs whitespace-nowrap self-end sm:self-auto"
+          >
+            <span className="material-symbols-outlined text-[16px]">price_change</span>
+            <span>Ver Catálogo de Preços</span>
+          </button>
+        </div>
+      )}
 
       {/* KPI Cards (Clean 2x2 grid on mobile, 4 columns on desktop) */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">

@@ -267,8 +267,8 @@ export const UsuariosViewTab: React.FC = () => {
               Matriz de Permissões por Perfil de Acesso
             </h4>
             {/* Desktop Table */}
-            <div className="hidden md:block w-full">
-              <table className="w-full text-left text-xs border-collapse bg-white rounded-xl overflow-hidden border border-gray-200 table-fixed">
+            <div className="hidden md:block w-full overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse bg-white rounded-xl overflow-hidden border border-gray-200 min-w-[700px]">
                 <thead>
                   <tr className="bg-gray-100 text-gray-700 font-bold border-b border-gray-200">
                     <th className="p-3">Módulo / Ação</th>
@@ -368,16 +368,16 @@ export const UsuariosViewTab: React.FC = () => {
         {/* Users Table / List */}
         <div>
           {/* Desktop Table */}
-          <div className="hidden md:block w-full">
-            <table className="w-full text-left text-xs border-collapse table-fixed">
+          <div className="hidden md:block w-full overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse min-w-[880px]">
               <thead>
                 <tr className="bg-gray-50/75 text-gray-600 border-b border-[#E5E2E1] font-bold">
-                  <th className="py-3 px-4 w-[28%]">Usuário</th>
-                  <th className="py-3 px-4 w-[24%]">E-mail & Telefone</th>
-                  <th className="py-3 px-4 w-[18%]">Perfil & Regra</th>
-                  <th className="py-3 px-4 w-[18%]">Departamento / Cargo</th>
-                  <th className="py-3 px-4 w-[12%] text-center">Status</th>
-                  <th className="py-3 px-4 w-28 text-right">Ações</th>
+                  <th className="py-3 px-4 min-w-[200px]">Usuário</th>
+                  <th className="py-3 px-4 min-w-[190px]">E-mail & Acesso</th>
+                  <th className="py-3 px-4 min-w-[160px]">Perfil & Regra</th>
+                  <th className="py-3 px-4 min-w-[160px]">Departamento / Cargo</th>
+                  <th className="py-3 px-4 w-28 min-w-[100px] text-center whitespace-nowrap">Status</th>
+                  <th className="py-3 px-4 w-36 min-w-[140px] text-right whitespace-nowrap">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -474,7 +474,7 @@ export const UsuariosViewTab: React.FC = () => {
                       </td>
 
                       <td className="py-3.5 px-4">
-                        <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-bold shrink-0 shadow-2xs ${roleMeta.badgeBg}`}>
+                        <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-bold shrink-0 shadow-2xs whitespace-nowrap ${roleMeta.badgeBg}`}>
                           <span className="material-symbols-outlined text-[16px]">{roleMeta.icon}</span>
                           <span>{roleMeta.label}</span>
                         </div>
@@ -487,10 +487,10 @@ export const UsuariosViewTab: React.FC = () => {
                         </div>
                       </td>
 
-                      <td className="py-3.5 px-4 text-center">
+                      <td className="py-3.5 px-4 text-center whitespace-nowrap">
                         <button
                           onClick={() => toggleSystemUserStatus(u.id)}
-                          className={`px-2.5 py-1 rounded-full text-[11px] font-bold transition-all cursor-pointer ${
+                          className={`inline-flex items-center justify-center px-2.5 py-1 rounded-full text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap shadow-2xs ${
                             u.status === 'ativo'
                               ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
                               : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
@@ -501,22 +501,22 @@ export const UsuariosViewTab: React.FC = () => {
                         </button>
                       </td>
 
-                      <td className="py-3.5 px-4 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
+                      <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                        <div className="flex items-center justify-end gap-1.5 whitespace-nowrap">
                           {!isCurrentActive && u.status === 'ativo' && (
                             <button
                               onClick={() => switchUser(u.id)}
-                              className="p-1.5 text-xs text-[#835400] hover:bg-amber-100 rounded-lg flex items-center gap-1 font-bold transition-colors"
+                              className="px-2 py-1 text-xs text-[#835400] bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg flex items-center gap-1 font-semibold transition-colors shrink-0"
                               title="Entrar/Simular visão deste usuário"
                             >
-                              <span className="material-symbols-outlined text-[18px]">login</span>
-                              <span className="hidden xl:inline">Alternar</span>
+                              <span className="material-symbols-outlined text-[16px]">login</span>
+                              <span>Alternar</span>
                             </button>
                           )}
 
                           <button
                             onClick={() => handleOpenEditModal(u)}
-                            className="p-1.5 text-gray-600 hover:text-black hover:bg-gray-100 rounded-lg transition-colors"
+                            className="p-1.5 text-gray-600 hover:text-black hover:bg-gray-100 rounded-lg transition-colors shrink-0"
                             title="Editar Usuário"
                           >
                             <span className="material-symbols-outlined text-[18px]">edit</span>
@@ -525,7 +525,7 @@ export const UsuariosViewTab: React.FC = () => {
                           <button
                             onClick={() => setUserToDelete(u)}
                             disabled={systemUsers.length <= 1}
-                            className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg disabled:opacity-30 transition-colors cursor-pointer"
+                            className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg disabled:opacity-30 transition-colors cursor-pointer shrink-0"
                             title="Excluir Usuário"
                           >
                             <span className="material-symbols-outlined text-[18px]">delete</span>

@@ -100,7 +100,7 @@ export const DashboardView: React.FC = () => {
         </div>
 
         {/* Quick Action Buttons */}
-        <div className="flex items-center gap-2.5 sm:gap-3 flex-wrap sm:flex-nowrap">
+        <div className="flex items-center gap-2.5 sm:gap-3 flex-wrap shrink-0">
           <Button
             variant="success"
             icon="add_circle"

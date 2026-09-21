@@ -5,7 +5,8 @@ import {
   removeFirebaseConfig,
   getFirestoreDb,
   testFirebaseConnection,
-  syncDocToFirestore
+  syncDocToFirestore,
+  syncBatchToFirestore
 } from './firebaseConfig';
 
 const SYNC_QUEUE_KEY = 'asphaltpro_sync_queue';
@@ -530,34 +531,65 @@ class SyncManager {
 
     try {
       if (db && config?.isActive) {
-        // Real Firestore sync - dispatch items with per-item resilience
-        const remaining: SyncQueueItem[] = [];
+        // Real Firestore sync - dispatch items with per-item resilience or writeBatch
+        const collectionMap: Record<string, string> = {
+          transaction: 'transactions',
+          account: 'accounts',
+          quote: 'quotes',
+          employee: 'employees',
+          partner: 'partners',
+          category: 'categories',
+          bankAccount: 'bankAccounts',
+          settings: 'settings',
+          user: 'users'
+        };
+
         let successCount = 0;
+        const remaining: SyncQueueItem[] = [];
 
-        for (const item of itemsToProcess) {
-          const collectionMap: Record<string, string> = {
-            transaction: 'transactions',
-            account: 'accounts',
-            quote: 'quotes',
-            employee: 'employees',
-            partner: 'partners',
-            category: 'categories',
-            bankAccount: 'bankAccounts',
-            settings: 'settings',
-            user: 'users'
-          };
-          const collectionName = collectionMap[item.entityType] || item.entityType;
-
+        // If we have multiple pending items, leverage atomic writeBatch for maximum performance
+        if (itemsToProcess.length > 3) {
           try {
-            await syncDocToFirestore(collectionName, item.entityId, item.payload, item.action);
-            successCount++;
-          } catch (itemErr: any) {
-            console.error(`Falha ao sincronizar item ${item.entityType}/${item.entityId}:`, itemErr);
-            const retries = (item.retryCount || 0) + 1;
-            if (retries < 4) {
-              remaining.push({ ...item, retryCount: retries });
-            } else {
-              this.addLog(`Item descartado após 3 falhas (${item.entityType}: ${item.entityId}): ${itemErr?.message || 'Erro'}`, 'error');
+            const batchOps = itemsToProcess.map(item => ({
+              collectionName: collectionMap[item.entityType] || item.entityType,
+              docId: item.entityId,
+              payload: item.payload,
+              action: item.action
+            }));
+            const batched = await syncBatchToFirestore(batchOps);
+            successCount += batched;
+            this.batchedWritesSaved += batched;
+            this.updateCachedStats();
+          } catch (batchErr) {
+            console.warn('[SyncManager] Batch falhou, revertendo para processamento individual resiliente:', batchErr);
+            // Fallback to individual
+            for (const item of itemsToProcess) {
+              const colName = collectionMap[item.entityType] || item.entityType;
+              try {
+                await syncDocToFirestore(colName, item.entityId, item.payload, item.action);
+                successCount++;
+              } catch (itemErr: any) {
+                const retries = (item.retryCount || 0) + 1;
+                if (retries < 4) {
+                  remaining.push({ ...item, retryCount: retries });
+                }
+              }
+            }
+          }
+        } else {
+          for (const item of itemsToProcess) {
+            const collectionName = collectionMap[item.entityType] || item.entityType;
+            try {
+              await syncDocToFirestore(collectionName, item.entityId, item.payload, item.action);
+              successCount++;
+            } catch (itemErr: any) {
+              console.error(`Falha ao sincronizar item ${item.entityType}/${item.entityId}:`, itemErr);
+              const retries = (item.retryCount || 0) + 1;
+              if (retries < 4) {
+                remaining.push({ ...item, retryCount: retries });
+              } else {
+                this.addLog(`Item descartado após 3 falhas (${item.entityType}: ${item.entityId}): ${itemErr?.message || 'Erro'}`, 'error');
+              }
             }
           }
         }
