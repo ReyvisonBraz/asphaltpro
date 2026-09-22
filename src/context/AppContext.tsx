@@ -7,6 +7,8 @@ import {
   getSavedFirebaseConfig, 
   fetchCollectionFromFirestore, 
   subscribeToFirestoreCollection, 
+  subscribeToFirestoreDoc,
+  subscribeToFirebaseConfigChange,
   syncDocToFirestore,
   loginWithEmailPassword,
   registerWithEmailPassword,
@@ -87,23 +89,27 @@ interface AppContextType {
   // User Management
   addSystemUser: (userData: Omit<SystemUser, 'id' | 'createdAt'>) => void;
   updateSystemUser: (id: string, userData: Partial<SystemUser>) => void;
+  updateCurrentUserAvatar: (newAvatarUrl: string) => void;
   toggleSystemUserStatus: (id: string) => void;
   deleteSystemUser: (id: string) => void;
   
   // Data State
   transactions: Transaction[];
   addTransaction: (tx: Omit<Transaction, 'id' | 'createdAt'>) => void;
+  addTransactionsBatch: (transactions: Omit<Transaction, 'id' | 'createdAt'>[]) => void;
   updateTransaction: (id: string, txData: Partial<Transaction>) => void;
   deleteTransaction: (id: string) => void;
   deduplicateTransactions: () => number;
   
   accounts: AccountItem[];
   addAccount: (acc: Omit<AccountItem, 'id'>) => void;
+  addAccountsBatch: (accounts: Omit<AccountItem, 'id'>[]) => void;
   toggleAccountPaidStatus: (id: string) => void;
   deleteAccount: (id: string) => void;
   
   employees: Employee[];
   addEmployee: (emp: Omit<Employee, 'id' | 'avatarInitials'>) => void;
+  addEmployeesBatch: (employees: Omit<Employee, 'id' | 'avatarInitials'>[]) => void;
   updateEmployee: (id: string, emp: Partial<Employee>) => void;
   toggleEmployeeStatus: (id: string) => void;
   deleteEmployee: (id: string) => void;
@@ -111,6 +117,7 @@ interface AppContextType {
   // Business Partners (Clientes e Fornecedores)
   partners: BusinessPartner[];
   addPartner: (partner: Omit<BusinessPartner, 'id'>) => void;
+  addPartnersBatch: (partners: Omit<BusinessPartner, 'id'>[]) => void;
   updatePartner: (id: string, partner: Partial<BusinessPartner>) => void;
   deletePartner: (id: string) => void;
   getUnifiedPartners: (filterType?: 'cliente' | 'fornecedor' | 'ambos') => BusinessPartner[];
@@ -140,6 +147,7 @@ interface AppContextType {
 
   quoteCatalog: QuoteCatalogItem[];
   addCatalogItem: (item: Omit<QuoteCatalogItem, 'id'>) => void;
+  addCatalogItemsBatch: (items: Omit<QuoteCatalogItem, 'id'>[]) => void;
   updateCatalogItem: (id: string, item: Partial<QuoteCatalogItem>) => void;
   deleteCatalogItem: (id: string) => void;
 
@@ -236,6 +244,11 @@ interface AppContextType {
   exportCsvData: (type: 'transacoes' | 'contas' | 'orcamentos' | 'parceiros' | 'colaboradores' | 'todos') => void;
   pullFromCloud: (silent?: boolean) => Promise<{ success: boolean; count: number }>;
   isPullingFromCloud: boolean;
+
+  // Optimistic UI State Queries
+  getOptimisticStatus: (entityType: string, entityId: string) => 'synced' | 'pending' | 'syncing' | 'error';
+  isOptimisticPending: (entityType: string, entityId: string) => boolean;
+  getPendingCountForType: (entityType: string) => number;
 
   // Reset to default data
   resetAllData: () => void;
@@ -387,6 +400,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const saved = localStorage.getItem('asphalt_auth');
     return saved ? JSON.parse(saved) : false; // default to false: forces Login view on first visit
   });
+
+  // Dynamic Firebase configuration state with real-time subscription
+  const [firebaseConfigState, setFirebaseConfigState] = useState(() => getSavedFirebaseConfig());
+
+  useEffect(() => {
+    const unsub = subscribeToFirebaseConfigChange((newConfig) => {
+      setFirebaseConfigState(newConfig);
+    });
+    return unsub;
+  }, []);
 
   // System Users & Roles State
   const [systemUsers, setSystemUsers] = useState<SystemUser[]>(() => {
@@ -1392,6 +1415,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }));
   };
 
+  const updateCurrentUserAvatar = (newAvatarUrl: string) => {
+    setUser((p) => ({
+      ...p,
+      avatarUrl: newAvatarUrl,
+    }));
+
+    // If user has a registered systemUser entry, update it in systemUsers & Firestore sync
+    const targetUser = systemUsers.find(
+      (u) => u.id === user.id || (u.email && user.email && u.email.toLowerCase() === user.email.toLowerCase())
+    );
+    if (targetUser) {
+      updateSystemUser(targetUser.id, { avatarUrl: newAvatarUrl });
+    } else {
+      showToast('Foto de perfil atualizada com sucesso!', 'success');
+    }
+  };
+
   const deleteSystemUser = (id: string) => {
     if (systemUsers.length <= 1) {
       showToast('O sistema precisa de pelo menos 1 usuário cadastrado.', 'error');
@@ -1474,6 +1514,52 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         severidade: 'critico',
         resolucaoSugerida: 'Verifique se os campos estão corretos e tente novamente. Se persistir, exporte o relatório de diagnóstico.',
         errorObj: err,
+      });
+    }
+  };
+
+  const addTransactionsBatch = (txList: Omit<Transaction, 'id' | 'createdAt'>[]) => {
+    if (!txList || txList.length === 0) return;
+    try {
+      const now = new Date().toISOString();
+      const newItems: Transaction[] = txList.map((txData, idx) => ({
+        ...txData,
+        id: `tx-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 4)}`,
+        createdAt: now
+      }));
+
+      setTransactions(prev => {
+        const merged = sortTransactionsDescending([...newItems, ...prev]);
+        try {
+          localStorage.setItem('asphalt_transactions', JSON.stringify(merged));
+        } catch (e) {}
+        return merged;
+      });
+
+      // Atomic batch queue for Firestore (writeBatch)
+      syncManager.enqueueBatch(
+        newItems.map(item => ({
+          entityId: item.id,
+          entityType: 'transaction',
+          action: 'create',
+          payload: item
+        }))
+      );
+
+      // Broadcast to other tabs
+      newItems.forEach(item => {
+        broadcastEntityMutation('transaction', 'create', [item.id], item);
+      });
+
+      showToast(`${newItems.length} lançamentos gravados com sucesso em lote!`, 'success');
+    } catch (err) {
+      reportSystemError({
+        modulo: 'lancamentos',
+        acao: 'Importação em Lote de Lançamentos',
+        titulo: 'Falha ao Gravar Lote',
+        mensagem: 'Erro ao persistir múltiplos lançamentos financeiros.',
+        severidade: 'critico',
+        errorObj: err
       });
     }
   };
@@ -1599,6 +1685,48 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         codigo: 'ERR_ACC_SAVE_FAILED',
         severidade: 'critico',
         errorObj: err,
+      });
+    }
+  };
+
+  const addAccountsBatch = (accList: Omit<AccountItem, 'id'>[]) => {
+    if (!accList || accList.length === 0) return;
+    try {
+      const newItems: AccountItem[] = accList.map((accData, idx) => ({
+        ...accData,
+        id: `acc-${Date.now()}-${idx}-${Math.random().toString(36).substr(2, 4)}`
+      }));
+
+      setAccounts(prev => {
+        const merged = [...newItems, ...prev];
+        try {
+          localStorage.setItem('asphalt_accounts', JSON.stringify(merged));
+        } catch (e) {}
+        return merged;
+      });
+
+      syncManager.enqueueBatch(
+        newItems.map(item => ({
+          entityId: item.id,
+          entityType: 'account',
+          action: 'create',
+          payload: item
+        }))
+      );
+
+      newItems.forEach(item => {
+        broadcastEntityMutation('account', 'create', [item.id], item);
+      });
+
+      showToast(`${newItems.length} contas cadastradas com sucesso em lote!`, 'success');
+    } catch (err) {
+      reportSystemError({
+        modulo: 'contas',
+        acao: 'Importação em Lote de Contas',
+        titulo: 'Falha ao Gravar Lote de Contas',
+        mensagem: 'Erro ao persistir múltiplas contas a pagar/receber.',
+        severidade: 'critico',
+        errorObj: err
       });
     }
   };
@@ -1731,6 +1859,55 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         codigo: 'ERR_EMP_SAVE_FAILED',
         severidade: 'alto',
         errorObj: err,
+      });
+    }
+  };
+
+  const addEmployeesBatch = (empList: Omit<Employee, 'id' | 'avatarInitials'>[]) => {
+    if (!empList || empList.length === 0) return;
+    try {
+      const newItems: Employee[] = empList.map((empData, idx) => {
+        const names = (empData.nome || 'Colaborador').trim().split(' ');
+        const initials = names.length > 1
+          ? `${names[0][0]}${names[names.length - 1][0]}`.toUpperCase()
+          : names[0].slice(0, 2).toUpperCase();
+        return {
+          ...empData,
+          id: `emp-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
+          avatarInitials: initials
+        };
+      });
+
+      setEmployees(prev => {
+        const merged = [...newItems, ...prev];
+        try {
+          localStorage.setItem('asphalt_employees', JSON.stringify(merged));
+        } catch (e) {}
+        return merged;
+      });
+
+      syncManager.enqueueBatch(
+        newItems.map(item => ({
+          entityId: item.id,
+          entityType: 'employee',
+          action: 'create',
+          payload: item
+        }))
+      );
+
+      newItems.forEach(item => {
+        broadcastEntityMutation('employee', 'create', [item.id], item);
+      });
+
+      showToast(`${newItems.length} funcionários cadastrados com sucesso em lote!`, 'success');
+    } catch (err) {
+      reportSystemError({
+        modulo: 'funcionarios',
+        acao: 'Importação em Lote de Colaboradores',
+        titulo: 'Falha ao Gravar Lote de Colaboradores',
+        mensagem: 'Erro ao persistir múltiplos funcionários.',
+        severidade: 'alto',
+        errorObj: err
       });
     }
   };
@@ -2021,17 +2198,88 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ...itemData,
       id: `cat-item-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
     };
-    setQuoteCatalog(prev => [newItem, ...prev]);
+    setQuoteCatalog(prev => {
+      const updated = [newItem, ...prev];
+      try {
+        localStorage.setItem('asphalt_quote_catalog', JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
+    syncDocToFirestore('quoteCatalog', newItem.id, newItem, 'create').catch(() => {});
+    syncManager.enqueue('quoteCatalog', 'create', newItem.id, newItem);
+    broadcastEntityMutation('quoteCatalog', 'create', [newItem.id], newItem);
     showToast(`Item "${newItem.nome}" adicionado ao catálogo!`, 'success');
   };
 
+  const addCatalogItemsBatch = (itemList: Omit<QuoteCatalogItem, 'id'>[]) => {
+    if (!itemList || itemList.length === 0) return;
+    try {
+      const newItems: QuoteCatalogItem[] = itemList.map((itData, idx) => ({
+        ...itData,
+        id: `cat-item-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`
+      }));
+
+      setQuoteCatalog(prev => {
+        const merged = deduplicateItems([...newItems, ...prev], 'cat-item');
+        try {
+          localStorage.setItem('asphalt_quote_catalog', JSON.stringify(merged));
+        } catch (e) {}
+        return merged;
+      });
+
+      syncManager.enqueueBatch(
+        newItems.map(item => ({
+          entityId: item.id,
+          entityType: 'quoteCatalog',
+          action: 'create',
+          payload: item
+        }))
+      );
+
+      newItems.forEach(item => {
+        broadcastEntityMutation('quoteCatalog', 'create', [item.id], item);
+      });
+
+      showToast(`${newItems.length} itens adicionados à tabela de preços em lote!`, 'success');
+    } catch (err) {
+      reportSystemError({
+        modulo: 'orcamentos',
+        acao: 'Importação em Lote de Catálogo',
+        titulo: 'Falha ao Gravar Itens do Catálogo',
+        mensagem: 'Erro ao persistir múltiplos itens de orçamento/preços.',
+        severidade: 'medio',
+        errorObj: err
+      });
+    }
+  };
+
   const updateCatalogItem = (id: string, itemData: Partial<QuoteCatalogItem>) => {
-    setQuoteCatalog(prev => prev.map(item => item.id === id ? { ...item, ...itemData } : item));
+    setQuoteCatalog(prev => {
+      const updated = prev.map(item => item.id === id ? { ...item, ...itemData } : item);
+      try {
+        localStorage.setItem('asphalt_quote_catalog', JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
+    const existing = quoteCatalog.find(item => item.id === id);
+    const fullPayload = existing ? { ...existing, ...itemData } : { id, ...itemData };
+    syncDocToFirestore('quoteCatalog', id, fullPayload, 'update').catch(() => {});
+    syncManager.enqueue('quoteCatalog', 'update', id, fullPayload);
+    broadcastEntityMutation('quoteCatalog', 'update', [id], fullPayload);
     showToast('Item do catálogo atualizado!', 'success');
   };
 
   const deleteCatalogItem = (id: string) => {
-    setQuoteCatalog(prev => prev.filter(item => item.id !== id));
+    setQuoteCatalog(prev => {
+      const updated = prev.filter(item => item.id !== id);
+      try {
+        localStorage.setItem('asphalt_quote_catalog', JSON.stringify(updated));
+      } catch (e) {}
+      return updated;
+    });
+    syncDocToFirestore('quoteCatalog', id, null, 'delete').catch(() => {});
+    syncManager.enqueue('quoteCatalog', 'delete', id, { id });
+    broadcastEntityMutation('quoteCatalog', 'delete', [id]);
     showToast('Item removido do catálogo.', 'info');
   };
 
@@ -2045,6 +2293,48 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     syncManager.enqueue('partner', 'create', newPartner.id, newPartner);
     syncManager.addLog(`Novo parceiro "${newPartner.nome}" cadastrado com sucesso`, 'success');
     showToast(`Parceiro "${newPartner.nome}" cadastrado!`, 'success');
+  };
+
+  const addPartnersBatch = (partnerList: Omit<BusinessPartner, 'id'>[]) => {
+    if (!partnerList || partnerList.length === 0) return;
+    try {
+      const newItems: BusinessPartner[] = partnerList.map((pData, idx) => ({
+        ...pData,
+        id: `part-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`
+      }));
+
+      setPartners(prev => {
+        const merged = [...newItems, ...prev];
+        try {
+          localStorage.setItem('asphalt_partners', JSON.stringify(merged));
+        } catch (e) {}
+        return merged;
+      });
+
+      syncManager.enqueueBatch(
+        newItems.map(item => ({
+          entityId: item.id,
+          entityType: 'partner',
+          action: 'create',
+          payload: item
+        }))
+      );
+
+      newItems.forEach(item => {
+        broadcastEntityMutation('partner', 'create', [item.id], item);
+      });
+
+      showToast(`${newItems.length} parceiros cadastrados com sucesso em lote!`, 'success');
+    } catch (err) {
+      reportSystemError({
+        modulo: 'cadastros',
+        acao: 'Importação em Lote de Parceiros',
+        titulo: 'Falha ao Gravar Lote de Parceiros',
+        mensagem: 'Erro ao persistir múltiplos parceiros.',
+        severidade: 'alto',
+        errorObj: err
+      });
+    }
   };
 
   const updatePartner = (id: string, partnerData: Partial<BusinessPartner>) => {
@@ -2138,8 +2428,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateLetterheadSettings = (settings: Partial<LetterheadSettings>) => {
-    setLetterheadSettings(prev => ({ ...prev, ...settings }));
-    showToast('Configurações de papel timbrado A4 salvas!', 'success');
+    setLetterheadSettings(prev => {
+      const updated = { ...prev, ...settings };
+      try {
+        localStorage.setItem('asphalt_letterhead_settings', JSON.stringify(updated));
+      } catch (err) {
+        console.warn('Falha ao salvar letterhead no localStorage:', err);
+      }
+
+      // 1. Sync to Firestore & Enqueue in syncManager for cloud propagation across all devices (Desktop & Mobile)
+      syncDocToFirestore('settings', 'letterhead', updated, 'update').catch(err => {
+        console.warn('[Sync] Falha ao enviar dados da usina para Firestore:', err);
+      });
+      syncManager.enqueue('settings', 'update', 'letterhead', updated);
+
+      // 2. Broadcast across tabs and windows on same device
+      broadcastEntityMutation('settings', 'update', ['letterhead'], updated);
+
+      return updated;
+    });
+
+    showToast('Configurações da usina salvas e sincronizadas na nuvem!', 'success');
   };
 
   const markNotificationRead = (id: string) => {
@@ -2388,7 +2697,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
    * RECONCILIATION ENGINE:
    * Merges authoritative cloud documents with local state while properly
    * honoring deletions across devices, respecting persistent tombstones,
-   * and preserving genuinely pending offline creations.
+   * preserving genuinely pending offline creations, and protecting in-flight
+   * optimistic updates from being prematurely overwritten by older cloud snapshots.
    */
   const reconcileWithCloud = <T extends { id: string }>(
     cloudItems: T[],
@@ -2406,13 +2716,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
     const deletedTombstones = syncManager.getDeletedEntityIds();
 
+    // In-flight optimistic updates: protect local pending modifications from stale server reads
+    const pendingUpdates = new Map<string, any>();
+    queue
+      .filter((q) => q.entityType === entityType && q.action === 'update' && q.status === 'pending')
+      .forEach((q) => {
+        if (q.payload) {
+          const existing = pendingUpdates.get(q.entityId) || {};
+          pendingUpdates.set(q.entityId, { ...existing, ...q.payload });
+        }
+      });
+
     const map = new Map<string, T>();
 
     // 1. Authoritative Cloud state: all items currently existing in Firestore
     cloudItems.forEach((item) => {
       // If deleted on this device or marked with active tombstone, do not resurrect!
       if (!pendingDeletes.has(item.id) && !deletedTombstones.has(item.id)) {
-        map.set(item.id, item);
+        if (pendingUpdates.has(item.id)) {
+          // Optimistic UI protection: preserve local pending updates over older cloud state
+          map.set(item.id, { ...item, ...pendingUpdates.get(item.id) });
+        } else {
+          map.set(item.id, item);
+        }
       }
     });
 
@@ -2426,6 +2752,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           if (localItem) {
             map.set(localItem.id, localItem);
           }
+        }
+      }
+    });
+
+    // 3. Preserve items that were updated locally while in-flight even if momentarily absent from cloud snapshot
+    pendingUpdates.forEach((payload, id) => {
+      if (!map.has(id) && !pendingDeletes.has(id) && !deletedTombstones.has(id)) {
+        const localItem = prevItems.find((p) => p.id === id);
+        if (localItem) {
+          map.set(id, { ...localItem, ...payload });
         }
       }
     });
@@ -2447,6 +2783,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
     const deletedTombstones = syncManager.getDeletedEntityIds();
 
+    const pendingUpdates = new Map<string, any>();
+    queue
+      .filter((q) => q.entityType === 'category' && q.action === 'update' && q.status === 'pending')
+      .forEach((q) => {
+        if (q.payload) {
+          const existing = pendingUpdates.get(q.entityId) || {};
+          pendingUpdates.set(q.entityId, { ...existing, ...q.payload });
+        }
+      });
+
     const map = new Map<string, Category>();
     const seenKeys = new Set<string>();
 
@@ -2457,7 +2803,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const key = `${cat.nome.trim().toLowerCase()}_${cat.tipo}`;
         if (!seenKeys.has(key)) {
           seenKeys.add(key);
-          map.set(cat.id, cat);
+          if (pendingUpdates.has(cat.id)) {
+            map.set(cat.id, { ...cat, ...pendingUpdates.get(cat.id) });
+          } else {
+            map.set(cat.id, cat);
+          }
         } else {
           // Orphan duplicate detected on cloud: cleanup duplicate in background
           syncDocToFirestore('categories', cat.id, null, 'delete').catch(() => {});
@@ -2508,12 +2858,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
     const deletedTombstones = syncManager.getDeletedEntityIds();
 
+    const pendingUpdates = new Map<string, any>();
+    queue
+      .filter((q) => q.entityType === 'bankAccount' && q.action === 'update' && q.status === 'pending')
+      .forEach((q) => {
+        if (q.payload) {
+          const existing = pendingUpdates.get(q.entityId) || {};
+          pendingUpdates.set(q.entityId, { ...existing, ...q.payload });
+        }
+      });
+
     const map = new Map<string, BankAccount>();
 
     // 1. Authoritative cloud bank accounts
     cloudBanks.forEach((b) => {
       if (!pendingDeletes.has(b.id) && !deletedTombstones.has(b.id)) {
-        map.set(b.id, b);
+        if (pendingUpdates.has(b.id)) {
+          map.set(b.id, { ...b, ...pendingUpdates.get(b.id) });
+        } else {
+          map.set(b.id, b);
+        }
       }
     });
 
@@ -2567,7 +2931,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         cloudPartners,
         cloudUsers,
         cloudCategories,
-        cloudBankAccounts
+        cloudBankAccounts,
+        cloudSettings,
+        cloudCatalog
       ] = await Promise.all([
         fetchCollectionFromFirestore('transactions'),
         fetchCollectionFromFirestore('quotes'),
@@ -2576,7 +2942,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         fetchCollectionFromFirestore('partners'),
         fetchCollectionFromFirestore('users'),
         fetchCollectionFromFirestore('categories'),
-        fetchCollectionFromFirestore('bankAccounts')
+        fetchCollectionFromFirestore('bankAccounts'),
+        fetchCollectionFromFirestore('settings'),
+        fetchCollectionFromFirestore('quoteCatalog')
       ]);
 
       let totalPulled = 0;
@@ -2653,6 +3021,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
       totalPulled += cloudBankAccounts.length;
 
+      // 9. Reconcile plant settings (dados da usina e papel timbrado A4):
+      const letterheadDoc = cloudSettings.find(s => s.id === 'letterhead' || s.id === 'plant_settings');
+      if (letterheadDoc) {
+        setLetterheadSettings((prev) => {
+          const { id, ...cleanData } = letterheadDoc;
+          const merged = { ...prev, ...cleanData };
+          try {
+            localStorage.setItem('asphalt_letterhead_settings', JSON.stringify(merged));
+          } catch (e) {}
+          return merged;
+        });
+        totalPulled += 1;
+      }
+
+      // 10. Reconcile quote catalog (preços de insumos e serviços CBUQ):
+      if (cloudCatalog && cloudCatalog.length > 0) {
+        setQuoteCatalog((prev) => {
+          const reconciled = reconcileWithCloud<QuoteCatalogItem>(cloudCatalog, prev, 'quoteCatalog' as any);
+          const result = deduplicateItems(reconciled, 'cat-item');
+          try {
+            localStorage.setItem('asphalt_quote_catalog', JSON.stringify(result));
+          } catch (e) {}
+          return result;
+        });
+        totalPulled += cloudCatalog.length;
+      }
+
       syncManager.addLog(`Nuvem sincronizada: ${totalPulled} registros recebidos do Firebase`, 'success', totalPulled);
       if (!silent) {
         showToast(`${totalPulled} registro(s) sincronizados da nuvem com sucesso!`, 'success');
@@ -2674,12 +3069,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Instantaneous bidirectional synchronization across all devices (Mobile, PC, Balança)
   // When an item is added, updated or DELETED on any device, all other devices reflect it in real-time.
   useEffect(() => {
-    const config = getSavedFirebaseConfig();
+    const config = firebaseConfigState || getSavedFirebaseConfig();
     if (!config || !config.isActive || !config.projectId || !config.apiKey) {
       return;
     }
 
     let isMounted = true;
+
+    const handleOnline = () => {
+      console.log('[Firestore] Conexão restabelecida - sincronizando fila offline...');
+      syncManager.processQueue();
+    };
+    window.addEventListener('online', handleOnline);
 
     // Real-time transactions listener
     const unsubTx = subscribeToFirestoreCollection('transactions', (cloudTx) => {
@@ -2769,10 +3170,79 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
     });
 
+    // Real-time plant settings helper (dados da usina e papel timbrado A4)
+    const handleLetterheadData = (data: any) => {
+      if (!isMounted || !data) return;
+      const { id, ...cleanData } = data;
+      setLetterheadSettings((prev) => {
+        const hasPending = syncManager.hasPending('settings', 'letterhead');
+        if (hasPending) {
+          const pending = syncManager.getPendingPayload('settings', 'letterhead') || {};
+          const merged = { ...cleanData, ...prev, ...pending };
+          try {
+            localStorage.setItem('asphalt_letterhead_settings', JSON.stringify(merged));
+          } catch (e) {}
+          return merged;
+        }
+        const merged = { ...prev, ...cleanData };
+        try {
+          localStorage.setItem('asphalt_letterhead_settings', JSON.stringify(merged));
+        } catch (e) {}
+        return merged;
+      });
+    };
+
+    // Specific Document listener for instantaneous settings/letterhead propagation
+    const unsubSettingsDoc = subscribeToFirestoreDoc('settings', 'letterhead', (docData) => {
+      if (docData) handleLetterheadData(docData);
+    });
+
+    // Fallback collection listener for settings
+    const unsubSettingsCol = subscribeToFirestoreCollection('settings', (cloudSettings) => {
+      if (!isMounted) return;
+      const letterheadDoc = cloudSettings.find(s => s.id === 'letterhead' || s.id === 'plant_settings');
+      if (letterheadDoc) {
+        handleLetterheadData(letterheadDoc);
+      }
+    });
+
+    // Real-time quote catalog listener (tabela de preços de insumos e serviços CBUQ)
+    const unsubCatalog = subscribeToFirestoreCollection('quoteCatalog', (cloudCatalog) => {
+      if (!isMounted) return;
+      if (cloudCatalog && cloudCatalog.length > 0) {
+        setQuoteCatalog((prev) => {
+          const reconciled = reconcileWithCloud<QuoteCatalogItem>(cloudCatalog, prev, 'quoteCatalog' as any);
+          const result = deduplicateItems(reconciled, 'cat-item');
+          try {
+            localStorage.setItem('asphalt_quote_catalog', JSON.stringify(result));
+          } catch (e) {}
+          return result;
+        });
+      }
+    });
+
     // Cross-tab broadcast listener (for instantaneous 0ms propagation between tabs/windows on same device)
     const unsubCrossTab = subscribeCrossTabSync((msg) => {
       if (!isMounted) return;
-      if (msg.entityType === 'category') {
+      if (msg.entityType === 'settings') {
+        if (msg.payload && (msg.ids.includes('letterhead') || msg.ids.includes('plant_settings'))) {
+          setLetterheadSettings(prev => {
+            const merged = { ...prev, ...msg.payload };
+            try {
+              localStorage.setItem('asphalt_letterhead_settings', JSON.stringify(merged));
+            } catch (err) {}
+            return merged;
+          });
+        }
+      } else if (msg.entityType === 'quoteCatalog') {
+        if (msg.action === 'delete') {
+          setQuoteCatalog(prev => prev.filter(item => !msg.ids.includes(item.id)));
+        } else if (msg.action === 'create' && msg.payload) {
+          setQuoteCatalog(prev => prev.some(i => i.id === msg.payload.id) ? prev : [msg.payload, ...prev]);
+        } else if (msg.action === 'update' && msg.payload) {
+          setQuoteCatalog(prev => prev.map(i => i.id === msg.payload.id ? { ...i, ...msg.payload } : i));
+        }
+      } else if (msg.entityType === 'category') {
         if (msg.action === 'delete') {
           setCategories((prev) => prev.filter((c) => !msg.ids.includes(c.id)));
         } else if (msg.action === 'create' && msg.payload) {
@@ -2809,6 +3279,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     return () => {
       isMounted = false;
+      window.removeEventListener('online', handleOnline);
       unsubCrossTab();
       if (unsubTx) unsubTx();
       if (unsubQuotes) unsubQuotes();
@@ -2818,18 +3289,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (unsubUsers) unsubUsers();
       if (unsubCategories) unsubCategories();
       if (unsubBankAccounts) unsubBankAccounts();
+      if (unsubSettingsDoc) unsubSettingsDoc();
+      if (unsubSettingsCol) unsubSettingsCol();
+      if (unsubCatalog) unsubCatalog();
     };
-  }, []);
-
-  // Initial startup cloud auto-pull
-  useEffect(() => {
-    const config = getSavedFirebaseConfig();
-    if (config && config.isActive && config.projectId && config.apiKey) {
-      if (typeof navigator !== 'undefined' && navigator.onLine) {
-        pullFromCloud(true);
-      }
-    }
-  }, []);
+  }, [firebaseConfigState?.projectId, firebaseConfigState?.apiKey, firebaseConfigState?.isActive]);
 
   // Financial aggregates calculation
   const entradasDoMes = transactions
@@ -2859,6 +3323,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         switchUser,
         addSystemUser,
         updateSystemUser,
+        updateCurrentUserAvatar,
         toggleSystemUserStatus,
         deleteSystemUser,
         login,
@@ -2875,20 +3340,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         viewHistory,
         transactions,
         addTransaction,
+        addTransactionsBatch,
         updateTransaction,
         deleteTransaction,
         deduplicateTransactions,
         accounts,
         addAccount,
+        addAccountsBatch,
         toggleAccountPaidStatus,
         deleteAccount,
         employees,
         addEmployee,
+        addEmployeesBatch,
         updateEmployee,
         toggleEmployeeStatus,
         deleteEmployee,
         partners,
         addPartner,
+        addPartnersBatch,
         updatePartner,
         deletePartner,
         getUnifiedPartners,
@@ -2912,6 +3381,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         convertQuoteToRevenue,
         quoteCatalog,
         addCatalogItem,
+        addCatalogItemsBatch,
         updateCatalogItem,
         deleteCatalogItem,
         letterheadSettings,
@@ -2971,6 +3441,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         exportCsvData,
         pullFromCloud,
         isPullingFromCloud,
+        getOptimisticStatus: (entityType, entityId) => syncManager.getOptimisticStatus(entityType, entityId),
+        isOptimisticPending: (entityType, entityId) => syncManager.isOptimisticPending(entityType, entityId),
+        getPendingCountForType: (entityType) => syncManager.getPendingCountForType(entityType),
         resetAllData
       }}
     >

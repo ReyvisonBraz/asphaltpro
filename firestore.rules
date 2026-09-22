@@ -116,6 +116,12 @@ service cloud.firestore {
       allow create, update, delete: if isSignedIn() && isValidId(settingId);
     }
 
+    // Quote Catalog (Catálogo de Preços e Serviços CBUQ)
+    match /quoteCatalog/{catalogId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isSignedIn() && isValidId(catalogId);
+    }
+
     // System Users & Role Authorization (Gestão de Usuários e Níveis de Acesso)
     match /users/{userId} {
       // Qualquer usuário autenticado pode ler a lista de usuários para conferir perfil

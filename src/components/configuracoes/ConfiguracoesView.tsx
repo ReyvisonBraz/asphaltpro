@@ -1,18 +1,21 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { LetterheadSettings, Quote, Category, BankAccount, TextoRapidoPreset, ToastPosition } from '../../types';
 import { DEFAULT_TEXTOS_RAPIDOS } from '../../data/initialData';
 import { Button, Input, Select, Modal, ConfirmModal } from '../common';
+import { AvatarUploader } from '../common/AvatarUploader';
 import { OrcamentoA4VisualizerModal } from '../orcamentos/OrcamentoA4VisualizerModal';
 import { UsuariosViewTab } from './UsuariosViewTab';
 import { ImportDataModal } from '../common/ImportDataModal';
 import { ImportEntityType, downloadTemplateCsv } from '../../utils/importUtils';
+import { processGeneralImageFile } from '../../utils/imageUtils';
 import { SyncDetailsModal } from '../sync/SyncDetailsModal';
 import { syncManager } from '../../services/syncManager';
 
 export const ConfiguracoesView: React.FC = () => {
   const {
     user,
+    updateCurrentUserAvatar,
     permissions,
     showToast,
     resetAllData,
@@ -104,27 +107,37 @@ export const ConfiguracoesView: React.FC = () => {
   const [trCategoria, setTrCategoria] = useState<'item_tecnico' | 'pagamento' | 'condicoes_gerais'>('item_tecnico');
   const [trText, setTrText] = useState('');
 
+  // Re-synchronize local form fields when cloud updates arrive (e.g. from mobile or other users)
+  useEffect(() => {
+    setNomeEmpresa(letterheadSettings.nomeEmpresa || '');
+    setCnpj(letterheadSettings.cnpj || '');
+    setInscricaoEstadual(letterheadSettings.inscricaoEstadual || '');
+    setEnderecoUsina(letterheadSettings.enderecoUsina || '');
+    setTelefone(letterheadSettings.telefone || '');
+    setEmailComercial(letterheadSettings.emailComercial || '');
+    setResponsavelTecnicoPadrao(letterheadSettings.responsavelTecnicoPadrao || 'Eng. Marcelo Albuquerque');
+    setCargoResponsavelPadrao(letterheadSettings.cargoResponsavelPadrao || 'Engenheiro Civil / Responsável Técnico CREA');
+    setDiasValidadePadrao(letterheadSettings.diasValidadePadrao || 15);
+    setTextoPadraoIntroducao(letterheadSettings.textoPadraoIntroducao || '');
+    setTextoPadraoCondicoes(letterheadSettings.textoPadraoCondicoes || '');
+    setBackgroundImageUrl(letterheadSettings.backgroundImageUrl || '');
+    setLogoUrl(letterheadSettings.logoUrl || '');
+    if (letterheadSettings.textosRapidos && letterheadSettings.textosRapidos.length > 0) {
+      setTextosRapidos(letterheadSettings.textosRapidos);
+    }
+  }, [letterheadSettings]);
+
   // Test modal
   const [previewSampleQuote, setPreviewSampleQuote] = useState<Quote | null>(null);
 
-  const handleFileUpload = (file: File) => {
-    if (!file.type.startsWith('image/')) {
-      showToast('Por favor, selecione um arquivo de imagem (PNG, JPG, WEBP).', 'error');
-      return;
+  const handleFileUpload = async (file: File) => {
+    try {
+      const compressed = await processGeneralImageFile(file, 1200, 1600, 0.82);
+      setBackgroundImageUrl(compressed);
+      showToast('Imagem de Papel Timbrado processada e otimizada!', 'success');
+    } catch (err: any) {
+      showToast(err?.message || 'Falha ao processar imagem de papel timbrado.', 'error');
     }
-
-    if (file.size > 5 * 1024 * 1024) {
-      showToast('A imagem deve ter no máximo 5MB para otimização da página A4.', 'error');
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const result = e.target?.result as string;
-      setBackgroundImageUrl(result);
-      showToast('Imagem de Papel Timbrado carregada com sucesso!', 'success');
-    };
-    reader.readAsDataURL(file);
   };
 
   const handleDrop = (e: React.DragEvent) => {
@@ -135,25 +148,15 @@ export const ConfiguracoesView: React.FC = () => {
     }
   };
 
-  const handleLogoUpload = (file: File) => {
-    if (!file.type.startsWith('image/')) {
-      showToast('Por favor, selecione um arquivo de imagem válido (PNG, JPG, SVG, WEBP).', 'error');
-      return;
+  const handleLogoUpload = async (file: File) => {
+    try {
+      const compressed = await processGeneralImageFile(file, 400, 400, 0.85);
+      setLogoUrl(compressed);
+      updateLetterheadSettings({ logoUrl: compressed });
+      showToast('Logotipo da empresa processado e salvo!', 'success');
+    } catch (err: any) {
+      showToast(err?.message || 'Falha ao processar logotipo.', 'error');
     }
-
-    if (file.size > 4 * 1024 * 1024) {
-      showToast('O arquivo de logotipo deve ter no máximo 4MB.', 'error');
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const result = e.target?.result as string;
-      setLogoUrl(result);
-      updateLetterheadSettings({ logoUrl: result });
-      showToast('Logotipo da empresa atualizado com sucesso!', 'success');
-    };
-    reader.readAsDataURL(file);
   };
 
   const handleLogoDrop = (e: React.DragEvent) => {
@@ -1216,24 +1219,37 @@ export const ConfiguracoesView: React.FC = () => {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* User Profile */}
           <div className="bg-white p-6 rounded-2xl border border-[#DEE2E6] shadow-xs text-xs space-y-4">
-            <h3 className="text-base font-bold text-[#010102] pb-3 border-b border-[#E5E2E1] flex items-center gap-2">
-              <span className="material-symbols-outlined text-[#010102]">account_circle</span>
-              Usuário Atual & Permissões
-            </h3>
+            <div className="flex items-center justify-between pb-3 border-b border-[#E5E2E1]">
+              <h3 className="text-base font-bold text-[#010102] flex items-center gap-2">
+                <span className="material-symbols-outlined text-[#010102]">account_circle</span>
+                Usuário Conectado & Foto de Perfil
+              </h3>
+              <span className="inline-block bg-[#D3F9D8] text-[#2B8A3E] px-2.5 py-0.5 rounded-full text-[10px] font-bold">
+                {user.role} ({user.status})
+              </span>
+            </div>
 
-            <div className="flex items-center gap-4 my-2">
-              <img
-                src={user.avatarUrl}
-                alt="Avatar"
-                className="w-14 h-14 rounded-full border border-gray-200 object-cover"
-              />
-              <div>
-                <p className="font-bold text-sm text-[#010102]">{user.name}</p>
-                <p className="text-gray-500">{user.email}</p>
-                <span className="inline-block mt-1 bg-[#D3F9D8] text-[#2B8A3E] px-2 py-0.5 rounded-full text-[10px] font-bold">
-                  {user.role} ({user.status})
+            <div className="space-y-4">
+              <div className="bg-gray-50/60 p-3 rounded-xl border border-gray-100 flex items-center justify-between">
+                <div>
+                  <p className="font-bold text-sm text-[#010102]">{user.name}</p>
+                  <p className="text-gray-500 text-[11px]">{user.email}</p>
+                </div>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500 bg-white px-2 py-1 rounded-md border border-gray-200">
+                  {user.roleTitle || user.role}
                 </span>
               </div>
+
+              {/* Avatar Uploader directly for current profile */}
+              <AvatarUploader
+                id="current-user-profile-avatar"
+                value={user.avatarUrl}
+                onChange={(newAvatar) => {
+                  updateCurrentUserAvatar(newAvatar);
+                }}
+                label="Foto de Perfil do Usuário"
+                helperText="Carregue uma foto do seu dispositivo ou utilize a câmera do celular. A imagem é comprimida e sincronizada sem precisar de link da internet."
+              />
             </div>
           </div>
 

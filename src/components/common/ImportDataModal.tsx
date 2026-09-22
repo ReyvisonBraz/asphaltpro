@@ -21,11 +21,11 @@ export const ImportDataModal: React.FC<ImportDataModalProps> = ({
   entityType,
 }) => {
   const {
-    addTransaction,
-    addAccount,
-    addPartner,
-    addEmployee,
-    addCatalogItem,
+    addTransactionsBatch,
+    addAccountsBatch,
+    addPartnersBatch,
+    addEmployeesBatch,
+    addCatalogItemsBatch,
     showToast,
   } = useApp();
 
@@ -104,25 +104,20 @@ export const ImportDataModal: React.FC<ImportDataModalProps> = ({
     setIsProcessing(true);
     try {
       const validItems = validationResult.items.filter((item) => item.isValid);
+      const dataItems = validItems.map((item) => item.data as any);
 
-      for (const item of validItems) {
-        if (entityType === 'transacoes') {
-          addTransaction(item.data as any);
-        } else if (entityType === 'contas') {
-          addAccount(item.data as any);
-        } else if (entityType === 'parceiros') {
-          addPartner(item.data as any);
-        } else if (entityType === 'colaboradores') {
-          addEmployee(item.data as any);
-        } else if (entityType === 'catalogo') {
-          addCatalogItem(item.data as any);
-        }
+      if (entityType === 'transacoes') {
+        addTransactionsBatch(dataItems);
+      } else if (entityType === 'contas') {
+        addAccountsBatch(dataItems);
+      } else if (entityType === 'parceiros') {
+        addPartnersBatch(dataItems);
+      } else if (entityType === 'colaboradores') {
+        addEmployeesBatch(dataItems);
+      } else if (entityType === 'catalogo') {
+        addCatalogItemsBatch(dataItems);
       }
 
-      showToast(
-        `${validItems.length} registros de ${schema.entityName} importados com sucesso!`,
-        'success'
-      );
       handleResetAndClose();
     } catch (error) {
       console.error(error);

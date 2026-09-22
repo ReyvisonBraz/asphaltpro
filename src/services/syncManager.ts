@@ -86,6 +86,7 @@ class SyncManager {
     this.isSimulatingOffline = this.isSimulatingOffline.bind(this);
     this.toggleSimulatedOffline = this.toggleSimulatedOffline.bind(this);
     this.enqueue = this.enqueue.bind(this);
+    this.enqueueBatch = this.enqueueBatch.bind(this);
     this.processQueue = this.processQueue.bind(this);
     this.clearQueue = this.clearQueue.bind(this);
     this.checkSyncIntegrity = this.checkSyncIntegrity.bind(this);
@@ -255,6 +256,52 @@ class SyncManager {
     return this.queue.filter((q) => q.status !== 'syncing').length;
   }
 
+  /**
+   * Checks if an entity has an in-flight optimistic operation (create, update, delete)
+   */
+  public hasPending(entityType: string, entityId: string): boolean {
+    return this.queue.some(
+      (q) => q.entityType === entityType && q.entityId === entityId && q.status === 'pending'
+    );
+  }
+
+  /**
+   * Returns merged pending payload for an entity currently in-flight
+   */
+  public getPendingPayload(entityType: string, entityId: string): any | null {
+    const items = this.queue.filter(
+      (q) => q.entityType === entityType && q.entityId === entityId && q.status === 'pending'
+    );
+    if (items.length === 0) return null;
+    return items.reduce((acc, curr) => ({ ...acc, ...(curr.payload || {}) }), {});
+  }
+
+  /**
+   * Returns current optimistic synchronization status for an entity
+   */
+  public getOptimisticStatus(
+    entityType: string,
+    entityId: string
+  ): 'synced' | 'pending' | 'syncing' | 'error' {
+    const items = this.queue.filter(
+      (q) => q.entityType === entityType && q.entityId === entityId
+    );
+    if (items.length === 0) return 'synced';
+    if (items.some((i) => i.status === 'failed')) return 'error';
+    if (this.networkState === 'syncing' || items.some((i) => i.status === 'syncing')) return 'syncing';
+    return 'pending';
+  }
+
+  public isOptimisticPending(entityType: string, entityId: string): boolean {
+    return this.hasPending(entityType, entityId);
+  }
+
+  public getPendingCountForType(entityType: string): number {
+    return this.queue.filter(
+      (q) => q.entityType === entityType && q.status === 'pending'
+    ).length;
+  }
+
   public getQueue(): SyncQueueItem[] {
     return this.queue;
   }
@@ -375,6 +422,7 @@ class SyncManager {
       };
       this.queue = [...this.queue, deleteItem];
       this.saveToStorage();
+      this.notify();
 
       // 4. Immediately trigger direct Firestore deletion for 0ms cross-device propagation
       const collectionMap: Record<string, string> = {
@@ -386,7 +434,8 @@ class SyncManager {
         category: 'categories',
         bankAccount: 'bankAccounts',
         settings: 'settings',
-        user: 'users'
+        user: 'users',
+        quoteCatalog: 'quoteCatalog'
       };
       const collectionName = collectionMap[entityType] || entityType;
 
@@ -396,9 +445,11 @@ class SyncManager {
         .then(() => {
           this.queue = this.queue.filter(q => q.id !== deleteItem.id);
           this.saveToStorage();
+          this.notify();
         })
         .catch((err) => {
           console.warn(`[SyncManager] Exclusão mantida na fila local de contingência:`, err);
+          this.notify();
         });
 
       // Dispatch queue processing fast to ensure cloud consistency across all connected devices
@@ -459,6 +510,7 @@ class SyncManager {
     }
 
     this.saveToStorage();
+    this.notify();
 
     // Com enableIndexedDbPersistence, persiste criações e edições imediatamente no IndexedDB
     const collectionMap: Record<string, string> = {
@@ -470,7 +522,8 @@ class SyncManager {
       category: 'categories',
       bankAccount: 'bankAccounts',
       settings: 'settings',
-      user: 'users'
+      user: 'users',
+      quoteCatalog: 'quoteCatalog'
     };
     const collectionName = collectionMap[entityType] || entityType;
 
@@ -480,9 +533,11 @@ class SyncManager {
           q => !(q.entityId === entityId && q.entityType === entityType && q.action === action)
         );
         this.saveToStorage();
+        this.notify();
       })
       .catch((err) => {
         console.warn(`[SyncManager] Operação mantida na fila de contingência para reprocessamento:`, err);
+        this.notify();
       });
 
     // Debounce processQueue so consecutive rapid edits get merged and dispatched in 1 batch
@@ -501,6 +556,95 @@ class SyncManager {
         'warning'
       );
     }
+  }
+
+  /**
+   * Enqueues multiple operations at once (e.g. bulk CSV import or mass operations)
+   * Dispatches them atomically via Firestore writeBatch (saving dozens of individual network calls).
+   */
+  public async enqueueBatch(
+    items: {
+      entityId: string;
+      entityType: SyncQueueItem['entityType'];
+      action: 'create' | 'update' | 'delete';
+      payload?: any;
+    }[]
+  ): Promise<void> {
+    if (!items || items.length === 0) return;
+
+    // Remove tombstones for any non-delete actions
+    for (const item of items) {
+      if (item.action !== 'delete' && this.deletedEntities[item.entityId]) {
+        delete this.deletedEntities[item.entityId];
+      } else if (item.action === 'delete') {
+        this.deletedEntities[item.entityId] = {
+          timestamp: Date.now(),
+          entityType: item.entityType
+        };
+      }
+    }
+    this.saveDeletedEntitiesToStorage();
+
+    const timestamp = new Date().toISOString();
+    const newQueueItems: SyncQueueItem[] = items.map((item, idx) => ({
+      id: 'sync_batch_' + Date.now() + '_' + idx + '_' + Math.random().toString(36).substr(2, 5),
+      entityId: item.entityId,
+      entityType: item.entityType,
+      action: item.action,
+      payload: item.payload,
+      timestamp,
+      retryCount: 0,
+      status: 'pending'
+    }));
+
+    // Add all to queue
+    this.queue = [...this.queue, ...newQueueItems];
+    this.saveToStorage();
+    this.notify();
+
+    const collectionMap: Record<string, string> = {
+      transaction: 'transactions',
+      account: 'accounts',
+      quote: 'quotes',
+      employee: 'employees',
+      partner: 'partners',
+      category: 'categories',
+      bankAccount: 'bankAccounts',
+      settings: 'settings',
+      user: 'users',
+      quoteCatalog: 'quoteCatalog'
+    };
+
+    if (this.isOnline()) {
+      const db = getFirestoreDb();
+      const config = getSavedFirebaseConfig();
+      if (db && config?.isActive) {
+        try {
+          const batchOps = items.map(item => ({
+            collectionName: collectionMap[item.entityType] || item.entityType,
+            docId: item.entityId,
+            payload: item.payload,
+            action: item.action
+          }));
+          const written = await syncBatchToFirestore(batchOps);
+          this.batchedWritesSaved += written;
+          this.updateCachedStats();
+          
+          // Remove from queue
+          const processedIds = new Set(items.map(i => i.entityId));
+          this.queue = this.queue.filter(q => !processedIds.has(q.entityId));
+          this.saveToStorage();
+          this.lastSyncTime = new Date().toISOString();
+          this.addLog(`Lote de ${written} registros gravado com sucesso no Firebase via writeBatch atômico`, 'success');
+          this.notify();
+          return;
+        } catch (batchErr) {
+          console.warn('[SyncManager] enqueueBatch falhou no envio imediato, mantido na fila para retry:', batchErr);
+        }
+      }
+    }
+
+    this.addLog(`${items.length} operações enfileiradas para sincronização em lote`, 'info');
   }
 
   /**
@@ -541,7 +685,8 @@ class SyncManager {
           category: 'categories',
           bankAccount: 'bankAccounts',
           settings: 'settings',
-          user: 'users'
+          user: 'users',
+          quoteCatalog: 'quoteCatalog'
         };
 
         let successCount = 0;

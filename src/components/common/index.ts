@@ -35,3 +35,4 @@ export type { PartnerAutocompleteProps } from './PartnerAutocomplete';
 export { SwipeableRow } from './SwipeableRow';
 export { ConfirmModal } from './ConfirmModal';
 export type { ConfirmModalProps } from './ConfirmModal';
+export { AvatarUploader } from './AvatarUploader';

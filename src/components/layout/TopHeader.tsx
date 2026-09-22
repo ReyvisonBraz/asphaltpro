@@ -6,6 +6,7 @@ import { SyncDetailsModal } from '../sync/SyncDetailsModal';
 import { PWAInstallButton } from '../common/PWAInstallButton';
 import { errorDiagnosticsService } from '../../services/errorDiagnosticsService';
 import { ShieldAlert, ShieldCheck } from 'lucide-react';
+import { processAvatarFile } from '../../utils/imageUtils';
 
 export const TopHeader: React.FC = () => {
   const {
@@ -17,6 +18,8 @@ export const TopHeader: React.FC = () => {
     user,
     systemUsers,
     switchUser,
+    updateCurrentUserAvatar,
+    showToast,
     logout,
     setIsHelpOpen,
     setIsDiagnosticsOpen,
@@ -35,8 +38,28 @@ export const TopHeader: React.FC = () => {
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const notifRef = useRef<HTMLDivElement>(null);
   const userRef = useRef<HTMLDivElement>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+
+  const handleQuickPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      setIsUploadingPhoto(true);
+      try {
+        const compressedDataUrl = await processAvatarFile(file, 256, 0.85);
+        updateCurrentUserAvatar(compressedDataUrl);
+      } catch (err: any) {
+        showToast(err?.message || 'Erro ao processar imagem.', 'error');
+      } finally {
+        setIsUploadingPhoto(false);
+        if (photoInputRef.current) {
+          photoInputRef.current.value = '';
+        }
+      }
+    }
+  };
 
   const unreadCount = notifications.filter(n => !n.lida).length;
   const recentErrorCount = (errors || []).filter(e => {
@@ -235,19 +258,56 @@ export const TopHeader: React.FC = () => {
             {/* User Menu Dropdown */}
             {isUserMenuOpen && (
               <div className="absolute right-0 mt-2 w-72 bg-white rounded-2xl border border-[#DEE2E6] shadow-xl py-2 z-50 animate-in fade-in slide-in-from-top-2">
+                {/* Hidden File Input for Direct Profile Photo Upload */}
+                <input
+                  ref={photoInputRef}
+                  type="file"
+                  id="topheader-avatar-file-input"
+                  accept="image/jpeg,image/png,image/webp,image/gif,image/*"
+                  className="hidden"
+                  onChange={handleQuickPhotoUpload}
+                />
+
                 <div className="px-4 py-2.5 border-b border-gray-100 flex items-center justify-between gap-2">
                   <div className="flex items-center gap-3 min-w-0">
-                    <img
-                      src={user.avatarUrl}
-                      alt={user.name}
-                      className="w-9 h-9 rounded-full object-cover border border-gray-300 shrink-0"
-                    />
+                    <div className="relative shrink-0 group">
+                      <img
+                        src={user.avatarUrl}
+                        alt={user.name}
+                        className="w-10 h-10 rounded-full object-cover border border-gray-300"
+                      />
+                      <button
+                        type="button"
+                        id="topheader-change-photo-btn"
+                        onClick={() => photoInputRef.current?.click()}
+                        disabled={isUploadingPhoto}
+                        className="absolute -bottom-1 -right-1 w-5 h-5 bg-[#835400] hover:bg-[#684300] text-white rounded-full flex items-center justify-center shadow-xs cursor-pointer transition-transform hover:scale-110"
+                        title="Trocar foto do perfil por imagem do celular/computador"
+                        aria-label="Trocar foto do perfil"
+                      >
+                        <span className="material-symbols-outlined text-[12px]">
+                          {isUploadingPhoto ? 'sync' : 'photo_camera'}
+                        </span>
+                      </button>
+                    </div>
                     <div className="min-w-0">
                       <p className="text-xs font-bold text-[#010102] truncate">{user.name}</p>
                       <p className="text-[11px] text-gray-500 truncate">{user.email}</p>
-                      <span className="inline-block mt-0.5 px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-amber-100 text-amber-900 border border-amber-200">
-                        Perfil: {user.role}
-                      </span>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className="inline-block px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-amber-100 text-amber-900 border border-amber-200">
+                          Perfil: {user.role}
+                        </span>
+                        <button
+                          type="button"
+                          id="topheader-upload-link-btn"
+                          onClick={() => photoInputRef.current?.click()}
+                          disabled={isUploadingPhoto}
+                          className="text-[10px] font-bold text-[#835400] hover:underline flex items-center gap-0.5 cursor-pointer"
+                        >
+                          <span className="material-symbols-outlined text-[12px]">upload</span>
+                          Foto
+                        </button>
+                      </div>
                     </div>
                   </div>
                   <button

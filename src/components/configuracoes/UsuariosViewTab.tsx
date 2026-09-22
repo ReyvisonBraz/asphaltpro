@@ -3,7 +3,9 @@ import { useApp } from '../../context/AppContext';
 import { SystemUser, UserRole } from '../../types';
 import { Button } from '../common/Button';
 import { ConfirmModal } from '../common/ConfirmModal';
+import { AvatarUploader } from '../common/AvatarUploader';
 import { ROLE_PERMISSIONS_MAP } from '../../data/initialData';
+import { AVATAR_PRESETS } from '../../utils/imageUtils';
 
 const ROLE_INFO: Record<UserRole, { label: string; badgeBg: string; badgeText: string; desc: string; icon: string }> = {
   admin: {
@@ -35,15 +37,6 @@ const ROLE_INFO: Record<UserRole, { label: string; badgeBg: string; badgeText: s
     icon: 'local_shipping'
   }
 };
-
-const AVATAR_PRESETS = [
-  { id: '1', url: 'https://lh3.googleusercontent.com/aida-public/AB6AXuB7LkHlJKY7QjurPQFmQAzY7wrUoQvzbkf96mcEvjVg4yWEewc9S01rdk5-KwEfqKsLoY_Ui6xuWB3CJxdksTsQsmZhoXuFwLBuRIGqnG9nvnagE4qFD2RBIaHW3ub0GXDb_0xHACM5AkJKCEQYF7ksj-FlERm_EH2mzPxoalt1JfT364i_D3AEKOgsj7oic4VGcn6Gzw92ljQdO41U8AwbhqqSugM464BKj51SwUv_pd0kM9lCg7cpOw', label: 'Diretoria' },
-  { id: '2', url: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=150&auto=format&fit=crop&q=80', label: 'Financeiro' },
-  { id: '3', url: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=150&auto=format&fit=crop&q=80', label: 'Engenharia' },
-  { id: '4', url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80', label: 'Operador' },
-  { id: '5', url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80', label: 'Supervisão' },
-  { id: '6', url: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80', label: 'Balança' }
-];
 
 export const UsuariosViewTab: React.FC = () => {
   const {
@@ -802,34 +795,14 @@ export const UsuariosViewTab: React.FC = () => {
                 </div>
               </div>
 
-              {/* Avatar Picker */}
-              <div>
-                <label className="block font-bold text-gray-800 mb-1.5">Avatar / Foto de Perfil</label>
-                <div className="flex items-center gap-2 mb-2 overflow-x-auto pb-1">
-                  {AVATAR_PRESETS.map((preset) => (
-                    <button
-                      type="button"
-                      key={preset.id}
-                      onClick={() => setAvatarUrl(preset.url)}
-                      className={`w-10 h-10 rounded-full overflow-hidden shrink-0 border-2 transition-all ${
-                        avatarUrl === preset.url
-                          ? 'border-[#835400] ring-2 ring-amber-300 scale-105'
-                          : 'border-gray-200 opacity-60 hover:opacity-100'
-                      }`}
-                      title={preset.label}
-                    >
-                      <img src={preset.url} alt={preset.label} className="w-full h-full object-cover" />
-                    </button>
-                  ))}
-                </div>
-                <input
-                  type="url"
-                  value={avatarUrl}
-                  onChange={(e) => setAvatarUrl(e.target.value)}
-                  placeholder="Ou cole a URL direta de uma foto..."
-                  className="w-full px-3 py-1.5 border border-[#C7C6CA] rounded-lg text-[11px] text-gray-600 focus:border-[#010102] outline-none"
-                />
-              </div>
+              {/* Avatar Uploader - Upload direct from device/camera or pick presets */}
+              <AvatarUploader
+                id="system-user-avatar-uploader"
+                value={avatarUrl}
+                onChange={setAvatarUrl}
+                label="Foto de Perfil / Avatar"
+                helperText="Você pode carregar uma foto diretamente do seu computador ou celular (câmera/galeria) sem precisar de link externo."
+              />
 
               {/* Footer Buttons */}
               <div className="flex items-center justify-end gap-2 pt-4 border-t border-gray-100">

@@ -160,6 +160,35 @@ export const isFirestorePersistenceEnabled = (): boolean => {
   return persistenceStatus === 'enabled';
 };
 
+type FirebaseConfigListener = (config: FirebaseProjectConfig | null) => void;
+const configChangeListeners = new Set<FirebaseConfigListener>();
+
+export const subscribeToFirebaseConfigChange = (listener: FirebaseConfigListener): (() => void) => {
+  configChangeListeners.add(listener);
+  return () => {
+    configChangeListeners.delete(listener);
+  };
+};
+
+export const notifyFirebaseConfigChange = () => {
+  const current = getSavedFirebaseConfig();
+  configChangeListeners.forEach((listener) => {
+    try {
+      listener(current);
+    } catch (e) {
+      console.warn('Erro no listener de configuração do Firebase:', e);
+    }
+  });
+};
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (e) => {
+    if (e.key === FIREBASE_CONFIG_STORAGE_KEY) {
+      notifyFirebaseConfigChange();
+    }
+  });
+}
+
 export const saveFirebaseConfig = (config: FirebaseProjectConfig): boolean => {
   if (typeof window === 'undefined') return false;
   try {
@@ -169,6 +198,7 @@ export const saveFirebaseConfig = (config: FirebaseProjectConfig): boolean => {
     firestoreInstance = null;
     persistencePromise = null;
     persistenceStatus = 'idle';
+    notifyFirebaseConfigChange();
     return true;
   } catch (e) {
     console.error('Erro ao salvar configuração do Firebase:', e);
@@ -185,6 +215,7 @@ export const removeFirebaseConfig = () => {
     authInstance = null;
     persistencePromise = null;
     persistenceStatus = 'idle';
+    notifyFirebaseConfigChange();
   } catch (e) {
     console.error('Erro ao remover configuração do Firebase:', e);
   }
@@ -602,6 +633,48 @@ export const subscribeToFirestoreCollection = (
   } catch (err) {
     handleFirestoreError(err, OperationType.GET, collectionName);
     console.error(`Erro ao assinar coleção em tempo real "${collectionName}":`, err);
+    return null;
+  }
+};
+
+/**
+ * Subscribes to real-time updates for a single specific Firestore document (e.g. settings/letterhead).
+ * Ensures instantaneous cross-device sync for document-level settings.
+ */
+export const subscribeToFirestoreDoc = (
+  collectionName: string,
+  docId: string,
+  onData: (data: any | null) => void,
+  onError?: (err: any) => void
+): (() => void) | null => {
+  const db = getFirestoreDb();
+  if (!db) return null;
+
+  try {
+    const docRef = doc(db, collectionName, docId);
+    const unsubscribe = onSnapshot(
+      docRef,
+      { includeMetadataChanges: false },
+      (snap) => {
+        if (snap.exists()) {
+          onData({
+            id: snap.id,
+            ...snap.data()
+          });
+        } else {
+          onData(null);
+        }
+      },
+      (err) => {
+        handleFirestoreError(err, OperationType.GET, `${collectionName}/${docId}`);
+        console.warn(`Aviso na escuta em tempo real do documento "${collectionName}/${docId}":`, err);
+        if (onError) onError(err);
+      }
+    );
+    return unsubscribe;
+  } catch (err) {
+    handleFirestoreError(err, OperationType.GET, `${collectionName}/${docId}`);
+    console.error(`Erro ao assinar documento em tempo real "${collectionName}/${docId}":`, err);
     return null;
   }
 };
